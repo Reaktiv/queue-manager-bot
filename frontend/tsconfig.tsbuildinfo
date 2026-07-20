@@ -1,0 +1,1 @@
+{"root":["./src/App.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/api/client.ts","./src/components/QueueList.tsx","./src/components/ui.tsx","./src/hooks/useTelegramAuth.ts","./src/pages/AdminDashboard.tsx","./src/pages/GroupSelector.tsx","./src/pages/MemberDashboard.tsx","./src/pages/SuperAdminDashboard.tsx","./src/types/index.ts","./vite.config.ts"],"version":"5.9.3"}

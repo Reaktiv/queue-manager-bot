@@ -1,0 +1,56 @@
+[project]
+name = "queue-manager-bot-backend"
+version = "0.1.0"
+description = "Telegram Duty & Queue Management Platform - Backend"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "sqlalchemy[asyncio]>=2.0.30",
+    "asyncpg>=0.29.0",
+    "alembic>=1.13.0",
+    "pydantic>=2.7.0",
+    "pydantic-settings>=2.3.0",
+    "redis>=5.0.0",
+    "apscheduler>=3.10.4",
+    "python-jose[cryptography]>=3.3.0",
+    "passlib[bcrypt]>=1.7.4",
+    "structlog>=24.1.0",
+    "python-multipart>=0.0.9",
+    "httpx>=0.27.0",
+    "openpyxl>=3.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.5.0",
+    "black>=24.4.0",
+    "mypy>=1.10.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+# F821 (undefined name) SQLAlchemy `Mapped["ClassName"]` forward-reference
+# annotatsiyalari uchun soxta signal beradi - runtime'da bular to'g'ri ishlaydi.
+ignore = ["F821"]
+
+[tool.black]
+line-length = 100
+
+[tool.mypy]
+python_version = "3.13"
+# To'liq "strict" rejim FastAPI route handler'lari va SQLAlchemy 2.x Mapped[]
+# pattern'lari bilan juda ko'p soxta-signal beradi (har bir route uchun aniq
+# qaytish turi, har bir dict uchun generic parametr talab qiladi). Shuning
+# uchun asosiy xato turlarini (undefined name, noto'g'ri chaqiruvlar) tutadigan,
+# lekin haddan tashqari qattiq bo'lmagan sozlamani ishlatamiz.
+disallow_untyped_defs = false
+disallow_any_generics = false
+warn_return_any = false
+check_untyped_defs = true
+ignore_missing_imports = true
