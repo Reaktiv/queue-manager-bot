@@ -3,6 +3,7 @@ Oddiy a'zo uchun: o'z vazifalarini ko'rish va rasm bilan bajarish.
 """
 from datetime import datetime
 
+import structlog
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -10,11 +11,12 @@ from aiogram.types import CallbackQuery, Message
 
 from bot.handlers.groups import get_active_group_id
 from bot.i18n.translator import t
-from bot.keyboards.inline import task_action_keyboard
+from bot.keyboards.inline import completion_vote_keyboard, task_action_keyboard
 from bot.services.api_client import ApiClient
 from bot.states.fsm import CompletionStates
 
 router = Router(name="my_tasks")
+logger = structlog.get_logger()
 
 
 def _lang(user) -> str:
@@ -95,40 +97,70 @@ async def handle_photo_received(message: Message, state: FSMContext, api_client:
     task_id = data.get("completing_task_id")
     user = message.from_user
 
-    # Eng katta o'lchamdagi rasmni olamiz
-    photo = message.photo[-1]
-    file = await bot.get_file(photo.file_id)
-    photo_bytes_io = await bot.download_file(file.file_path)
-    photo_bytes = photo_bytes_io.read()
+    try:
+        # Eng katta o'lchamdagi rasmni olamiz
+        photo = message.photo[-1]
+        file = await bot.get_file(photo.file_id)
+        photo_bytes_io = await bot.download_file(file.file_path)
+        photo_bytes = photo_bytes_io.read()
 
-    caption = message.caption
+        caption = message.caption
 
-    result = await api_client.complete_task_with_photo(
-        task_id=task_id,
-        telegram_id=user.id,
-        photo_bytes=photo_bytes,
-        photo_filename="photo.jpg",
-        caption=caption,
-    )
+        result = await api_client.complete_task_with_photo(
+            task_id=task_id,
+            telegram_id=user.id,
+            photo_bytes=photo_bytes,
+            photo_filename="photo.jpg",
+            caption=caption,
+        )
 
-    if result.get("success"):
-        await message.answer(t("task_completed", lang=_lang(user)))
-    else:
-        await message.answer(f"❌ Xatolik: {result.get('message')}")
-
-    await state.set_data({k: v for k, v in data.items() if k.startswith("active_")})
+        if result.get("success"):
+            data = result.get("data") or {}
+            if data.get("auto_approved", True):
+                await message.answer(t("task_completed", lang=_lang(user)))
+            else:
+                await message.answer(
+                    "📤 Rasmingiz guruhga yuborildi. Guruh a'zolarining tasdig'ini kuting."
+                )
+                chat_id = data.get("telegram_chat_id")
+                completion_id = data.get("completion_id")
+                if chat_id and completion_id:
+                    task_name = data.get("task_name") or "Vazifa"
+                    member_name = data.get("member_name") or user.full_name
+                    vote_caption = (
+                        f"📷 <b>{member_name}</b> \"{task_name}\" vazifasini bajardi deb belgiladi.\n\n"
+                        f"Guruh a'zolari, tasdiqlaysizmi?"
+                    )
+                    if caption:
+                        vote_caption += f"\n\n📝 {caption}"
+                    try:
+                        await bot.send_photo(
+                            chat_id=chat_id,
+                            photo=photo.file_id,
+                            caption=vote_caption,
+                            reply_markup=completion_vote_keyboard(completion_id),
+                        )
+                    except Exception:
+                        logger.exception(
+                            "send_completion_vote_photo_failed",
+                            chat_id=chat_id,
+                            completion_id=completion_id,
+                        )
+        else:
+            await message.answer(f"❌ Xatolik: {result.get('message')}")
+    except Exception:
+        await message.answer(
+            "❌ Rasmni yuklashda xatolik yuz berdi. Iltimos, qayta urinib ko'ring."
+        )
+    finally:
+        # Xatolik bo'lsa ham foydalanuvchi doim "waiting_for_photo" holatidan
+        # chiqishi kerak - aks holda /cancel qilmaguncha botga hech narsa yubora olmaydi.
+        await state.set_data({k: v for k, v in data.items() if k.startswith("active_")})
 
 
 @router.message(CompletionStates.waiting_for_photo, F.text)
 async def handle_photo_missing(message: Message) -> None:
     await message.answer("📷 Iltimos, matn emas, rasm yuboring (yoki /cancel bilan bekor qiling).")
-
-
-@router.message(Command("cancel"))
-async def handle_cancel(message: Message, state: FSMContext) -> None:
-    data = await state.get_data()
-    await state.set_data({k: v for k, v in data.items() if k.startswith("active_")})
-    await message.answer("Amal bekor qilindi.")
 
 
 @router.message(Command("turns", "navbatlar"))

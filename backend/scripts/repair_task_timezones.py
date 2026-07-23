@@ -92,7 +92,8 @@ async def main() -> None:
                 task.next_reminder_at = calculate_next_reminder_at(
                     now_utc=now_utc,
                     timezone_str=timezone_str,
-                    interval_minutes=task.reminder_interval_minutes,
+                    interval_min_minutes=task.reminder_interval_min_minutes,
+                    interval_max_minutes=task.reminder_interval_max_minutes,
                     start_hour=task.reminder_start_hour,
                     end_hour=task.reminder_end_hour,
                 )

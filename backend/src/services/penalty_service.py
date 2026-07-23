@@ -24,8 +24,8 @@ class PenaltyService:
             (ketma-ket 2 yoki undan ko'p kun o'tkazib yuborilgan bo'lsa).
         """
         await self._repo.add_penalty(member_id, task_id, assignment_id)
-        missed_count = await self._repo.count_missed(member_id)
-        return missed_count >= 2
+        consecutive_missed = await self._repo.count_consecutive_missed(member_id)
+        return consecutive_missed >= 2
 
     async def get_member_statistics(self, member_id: int) -> dict:
         total_penalty = await self._repo.get_total_penalty(member_id)

@@ -5,7 +5,7 @@ Repository Layer: Jarima (Penalty) bilan ishlash.
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..infrastructure.models.task import Penalty, TaskAssignment, TaskCompletion
+from ..infrastructure.models.task import Penalty, TaskAssignment, TaskCompletion, TaskStatus
 
 
 class PenaltyRepository:
@@ -42,6 +42,31 @@ class PenaltyRepository:
         stmt = select(func.count(Penalty.id)).where(Penalty.member_id == member_id)
         result = await self._session.execute(stmt)
         return int(result.scalar_one())
+
+    async def count_consecutive_missed(self, member_id: int) -> int:
+        """
+        A'zoning oxirgi marta vazifani vaqtida (COMPLETED) bajarganidan beri
+        ketma-ket nechta assignment OVERDUE bo'lganini hisoblaydi. Hali
+        yakunlanmagan (PENDING/IN_PROGRESS) assignment'lar hisobga olinmaydi.
+        Bu "count_missed" (butun umr davomidagi jami o'tkazib yuborishlar
+        soni)dan farqli - guruhga ogohlantirish faqat haqiqiy ketma-ketlik
+        (masalan, 2 kun ketma-ket) bo'lganda yuborilishi kerak.
+        """
+        stmt = (
+            select(TaskAssignment.status)
+            .where(
+                TaskAssignment.member_id == member_id,
+                TaskAssignment.status.in_([TaskStatus.COMPLETED, TaskStatus.OVERDUE]),
+            )
+            .order_by(TaskAssignment.assigned_date.desc())
+        )
+        result = await self._session.execute(stmt)
+        streak = 0
+        for status in result.scalars().all():
+            if status != TaskStatus.OVERDUE:
+                break
+            streak += 1
+        return streak
 
     async def get_completion_stats(self, member_id: int) -> dict:
         total_stmt = select(func.count(TaskAssignment.id)).where(

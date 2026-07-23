@@ -16,7 +16,7 @@ from bot.keyboards.inline import (
     yes_no_keyboard,
 )
 from bot.services.api_client import ApiClient
-from bot.states.fsm import CreateTaskStates, SwapStates
+from bot.states.fsm import CreateTaskStates, EditReminderStates, SwapStates
 from bot.utils.datetime_utils import get_local_today_in_timezone
 
 router = Router(name="admin_tasks")
@@ -294,21 +294,95 @@ async def handle_start_date(message: Message, state: FSMContext) -> None:
             return
 
     await state.update_data(new_task_start_date=start_date_str)
-    await state.set_state(CreateTaskStates.waiting_for_reminder_interval)
+    await state.set_state(CreateTaskStates.waiting_for_reminder_interval_min)
     await message.answer(
-        "⏰ Eslatma qanchalik tez-tez yuborilsin? Daqiqalarda kiriting (masalan, 60):"
+        "⏰ Eslatma necha daqiqadan keyin yuborilsin? Eng kichik qiymatni kiriting (masalan, 30):"
     )
 
 
-@router.message(CreateTaskStates.waiting_for_reminder_interval, F.text)
-async def handle_reminder_interval(message: Message, state: FSMContext) -> None:
+@router.message(CreateTaskStates.waiting_for_reminder_interval_min, F.text)
+async def handle_reminder_interval_min(message: Message, state: FSMContext) -> None:
     try:
-        interval = int(message.text.strip()) if message.text else 60
+        interval = int(message.text.strip()) if message.text else 0
     except ValueError:
-        await message.answer("❌ Iltimos, faqat son kiriting (masalan, 60):")
+        await message.answer("❌ Iltimos, faqat son kiriting (masalan, 30):")
+        return
+    if interval <= 0:
+        await message.answer("❌ Interval musbat son bo'lishi kerak (masalan, 30):")
         return
 
-    await state.update_data(new_task_reminder_interval=interval)
+    await state.update_data(new_task_reminder_min=interval)
+    await state.set_state(CreateTaskStates.waiting_for_reminder_interval_max)
+    await message.answer(
+        "⏰ Eng katta qiymatni kiriting (masalan, 90). Eslatmalar shu ikki son orasida "
+        "tasodifiy vaqtda yuboriladi:"
+    )
+
+
+@router.message(CreateTaskStates.waiting_for_reminder_interval_max, F.text)
+async def handle_reminder_interval_max(message: Message, state: FSMContext) -> None:
+    try:
+        interval = int(message.text.strip()) if message.text else 0
+    except ValueError:
+        await message.answer("❌ Iltimos, faqat son kiriting (masalan, 90):")
+        return
+    if interval <= 0:
+        await message.answer("❌ Interval musbat son bo'lishi kerak (masalan, 90):")
+        return
+
+    data = await state.get_data()
+    reminder_min = data.get("new_task_reminder_min", 60)
+    if interval < reminder_min:
+        await message.answer(
+            "❌ Eng katta qiymat eng kichikdan kichik bo'lmasligi kerak. Qaytadan kiriting:"
+        )
+        return
+
+    await state.update_data(new_task_reminder_max=interval)
+    await state.set_state(CreateTaskStates.waiting_for_reminder_start_hour)
+    await message.answer(
+        "🌅 Eslatmalar qaysi soatdan boshlab yuborilsin? Soatni kiriting (0-23, masalan, 8):"
+    )
+
+
+@router.message(CreateTaskStates.waiting_for_reminder_start_hour, F.text)
+async def handle_reminder_start_hour(message: Message, state: FSMContext) -> None:
+    try:
+        hour = int(message.text.strip()) if message.text else -1
+    except ValueError:
+        await message.answer("❌ Iltimos, faqat son kiriting (masalan, 8):")
+        return
+    if not (0 <= hour <= 23):
+        await message.answer("❌ Soat 0 dan 23 gacha bo'lishi kerak:")
+        return
+
+    await state.update_data(new_task_start_hour=hour)
+    await state.set_state(CreateTaskStates.waiting_for_reminder_end_hour)
+    await message.answer(
+        "🌙 Eslatmalar qaysi soatgacha yuborilsin? Soatni kiriting (0-23, masalan, 22):"
+    )
+
+
+@router.message(CreateTaskStates.waiting_for_reminder_end_hour, F.text)
+async def handle_reminder_end_hour(message: Message, state: FSMContext) -> None:
+    try:
+        hour = int(message.text.strip()) if message.text else -1
+    except ValueError:
+        await message.answer("❌ Iltimos, faqat son kiriting (masalan, 22):")
+        return
+    if not (0 <= hour <= 23):
+        await message.answer("❌ Soat 0 dan 23 gacha bo'lishi kerak:")
+        return
+
+    data = await state.get_data()
+    start_hour = data.get("new_task_start_hour", 8)
+    if hour <= start_hour:
+        await message.answer(
+            "❌ Tugash soati boshlanish soatidan katta bo'lishi kerak. Qaytadan kiriting:"
+        )
+        return
+
+    await state.update_data(new_task_end_hour=hour)
     await state.set_state(CreateTaskStates.waiting_for_photo_requirement)
     await message.answer(
         "📷 Bajarilganda rasm yuklash majburiymi?",
@@ -334,7 +408,10 @@ async def handle_require_photo(callback: CallbackQuery, state: FSMContext, api_c
         group_id=data["active_group_id"],
         name=data["new_task_name"],
         description=data.get("new_task_description"),
-        reminder_interval_minutes=data.get("new_task_reminder_interval", 60),
+        reminder_interval_min_minutes=data.get("new_task_reminder_min", 60),
+        reminder_interval_max_minutes=data.get("new_task_reminder_max", 60),
+        reminder_start_hour=data.get("new_task_start_hour", 8),
+        reminder_end_hour=data.get("new_task_end_hour", 22),
         require_photo=require_photo,
         schedule_interval_days=data.get("new_task_interval_days", 1),
         start_date=data.get("new_task_start_date"),
@@ -351,6 +428,135 @@ async def handle_require_photo(callback: CallbackQuery, state: FSMContext, api_c
     await state.clear()
     await state.set_data(active_data)
     await callback.answer()
+
+
+# --- Mavjud vazifaning eslatma sozlamalarini tahrirlash (FSM oqimi) ---
+
+
+@router.callback_query(F.data.startswith("edit_reminder_start:"))
+async def handle_edit_reminder_start(callback: CallbackQuery, state: FSMContext, api_client: ApiClient) -> None:
+    if callback.data is None or callback.message is None:
+        return
+    if not await _require_group_admin(state, callback):
+        return
+
+    task_id = int(callback.data.split(":")[1])
+    group_id = await get_active_group_id(state)
+
+    current_hint = ""
+    if group_id is not None:
+        result = await api_client.list_group_tasks(group_id)
+        tasks = result.get("data") or []
+        task = next((item for item in tasks if item.get("id") == task_id), None)
+        if task and task.get("reminder_interval_min_minutes") is not None:
+            current_hint = (
+                f"\n\nJoriy sozlama: {task['reminder_interval_min_minutes']}-"
+                f"{task['reminder_interval_max_minutes']} daqiqa, "
+                f"{task['reminder_start_hour']}:00-{task['reminder_end_hour']}:00."
+            )
+
+    await state.update_data(edit_reminder_task_id=task_id)
+    await state.set_state(EditReminderStates.waiting_for_min)
+    await callback.message.answer(
+        "⏰ Eslatma necha daqiqadan keyin yuborilsin? Eng kichik qiymatni kiriting "
+        f"(masalan, 30):{current_hint}"
+    )
+    await callback.answer()
+
+
+@router.message(EditReminderStates.waiting_for_min, F.text)
+async def handle_edit_reminder_min(message: Message, state: FSMContext) -> None:
+    try:
+        interval = int(message.text.strip()) if message.text else 0
+    except ValueError:
+        await message.answer("❌ Iltimos, faqat son kiriting (masalan, 30):")
+        return
+    if interval <= 0:
+        await message.answer("❌ Interval musbat son bo'lishi kerak (masalan, 30):")
+        return
+
+    await state.update_data(edit_reminder_min=interval)
+    await state.set_state(EditReminderStates.waiting_for_max)
+    await message.answer("⏰ Eng katta qiymatni kiriting (masalan, 90):")
+
+
+@router.message(EditReminderStates.waiting_for_max, F.text)
+async def handle_edit_reminder_max(message: Message, state: FSMContext) -> None:
+    try:
+        interval = int(message.text.strip()) if message.text else 0
+    except ValueError:
+        await message.answer("❌ Iltimos, faqat son kiriting (masalan, 90):")
+        return
+    if interval <= 0:
+        await message.answer("❌ Interval musbat son bo'lishi kerak (masalan, 90):")
+        return
+
+    data = await state.get_data()
+    reminder_min = data.get("edit_reminder_min", 60)
+    if interval < reminder_min:
+        await message.answer(
+            "❌ Eng katta qiymat eng kichikdan kichik bo'lmasligi kerak. Qaytadan kiriting:"
+        )
+        return
+
+    await state.update_data(edit_reminder_max=interval)
+    await state.set_state(EditReminderStates.waiting_for_start_hour)
+    await message.answer("🌅 Eslatmalar qaysi soatdan boshlab yuborilsin? (0-23):")
+
+
+@router.message(EditReminderStates.waiting_for_start_hour, F.text)
+async def handle_edit_reminder_start_hour(message: Message, state: FSMContext) -> None:
+    try:
+        hour = int(message.text.strip()) if message.text else -1
+    except ValueError:
+        await message.answer("❌ Iltimos, faqat son kiriting (masalan, 8):")
+        return
+    if not (0 <= hour <= 23):
+        await message.answer("❌ Soat 0 dan 23 gacha bo'lishi kerak:")
+        return
+
+    await state.update_data(edit_reminder_start_hour=hour)
+    await state.set_state(EditReminderStates.waiting_for_end_hour)
+    await message.answer("🌙 Eslatmalar qaysi soatgacha yuborilsin? (0-23):")
+
+
+@router.message(EditReminderStates.waiting_for_end_hour, F.text)
+async def handle_edit_reminder_end_hour(message: Message, state: FSMContext, api_client: ApiClient) -> None:
+    try:
+        hour = int(message.text.strip()) if message.text else -1
+    except ValueError:
+        await message.answer("❌ Iltimos, faqat son kiriting (masalan, 22):")
+        return
+    if not (0 <= hour <= 23):
+        await message.answer("❌ Soat 0 dan 23 gacha bo'lishi kerak:")
+        return
+
+    data = await state.get_data()
+    start_hour = data.get("edit_reminder_start_hour", 8)
+    if hour <= start_hour:
+        await message.answer(
+            "❌ Tugash soati boshlanish soatidan katta bo'lishi kerak. Qaytadan kiriting:"
+        )
+        return
+
+    user = message.from_user
+    result = await api_client.update_task(
+        telegram_id=user.id,
+        task_id=data["edit_reminder_task_id"],
+        reminder_interval_min_minutes=data.get("edit_reminder_min", 60),
+        reminder_interval_max_minutes=data.get("edit_reminder_max", 60),
+        reminder_start_hour=start_hour,
+        reminder_end_hour=hour,
+    )
+
+    if result.get("success"):
+        await message.answer("✅ Eslatma sozlamalari yangilandi.")
+    else:
+        await message.answer(f"❌ Xatolik: {result.get('message')}")
+
+    active_data = {k: v for k, v in data.items() if k.startswith("active_")}
+    await state.clear()
+    await state.set_data(active_data)
 
 
 @router.message(Command("members"))
@@ -398,6 +604,51 @@ async def handle_vacation_start(message: Message, state: FSMContext, api_client:
     await message.answer(
         result.get("message", "Bajarildi") if result.get("success") else f"❌ {result.get('message')}"
     )
+
+
+@router.message(Command("setadmin"))
+async def handle_setadmin(message: Message, state: FSMContext, api_client: ApiClient) -> None:
+    """
+    /setadmin <member_id> - shu a'zoni admin qiladi yoki (admin bo'lsa) oddiy
+    a'zoga tushiradi. Guruh yaratuvchisi bilan cheklanmagan - istalgan mavjud
+    admin boshqa a'zolarni ham admin qila oladi, shunda vazifalarni
+    yaratish/tahrirlash huquqi faqat "guruh egasi"ga emas, balki barcha
+    tayinlangan adminlarga tegishli bo'ladi.
+    """
+    group_id = await _require_active_group(message, state)
+    if group_id is None:
+        return
+    if not await _require_group_admin(state, message):
+        return
+
+    parts = (message.text or "").split()
+    if len(parts) < 2 or not parts[1].isdigit():
+        result = await api_client.list_members(group_id)
+        members = result.get("data") or []
+        lines = ["Foydalanish: <code>/setadmin [member_id]</code>\n\nA'zolar:"]
+        for m in members:
+            role_icon = "👑" if m["role"] == "admin" else "👤"
+            lines.append(f"  {m['member_id']} - {role_icon} {m['full_name']}")
+        await message.answer("\n".join(lines))
+        return
+
+    member_id = int(parts[1])
+    members_result = await api_client.list_members(group_id)
+    member = next((m for m in (members_result.get("data") or []) if m["member_id"] == member_id), None)
+    if member is None:
+        await message.answer("❌ A'zo topilmadi")
+        return
+    new_role = "member" if member["role"] == "admin" else "admin"
+
+    user = message.from_user
+    result = await api_client.set_member_role(user.id, group_id, member_id, new_role)
+    if not result.get("success"):
+        await message.answer(f"❌ {result.get('message')}")
+        return
+
+    icon = "👑" if new_role == "admin" else "👤"
+    role_label = "admin" if new_role == "admin" else "oddiy a'zo"
+    await message.answer(f"{icon} {member['full_name']} endi {role_label}")
 
 
 @router.message(Command("deletetask"))

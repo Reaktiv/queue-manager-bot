@@ -129,6 +129,76 @@ async def test_internal_secret_required(client):
     assert resp.status_code == 401
 
 
+async def test_admin_swap_queue_endpoint_uses_member_ids(client):
+    """
+    `/tasks/{task_id}/queue/swap` endpointi `member_id_a`/`member_id_b`
+    (TaskQueueEntry.member_id qiymatlari, entry PK emas) qabul qilishini
+    va real HTTP so'rov orqali navbatdagi o'rinlarni to'g'ri
+    almashtirishini tekshiradi (avval bu endpoint uchun hech qanday
+    integratsiya testi yo'q edi).
+    """
+    await client.post(
+        "/api/v1/users/register",
+        json={"telegram_id": 6001, "full_name": "Swap Admin"},
+        headers=HEADERS,
+    )
+    await client.post(
+        "/api/v1/users/register",
+        json={"telegram_id": 6002, "full_name": "Swap Member"},
+        headers=HEADERS,
+    )
+
+    resp = await client.post(
+        "/api/v1/groups/create",
+        json={"telegram_id": 6001, "name": "Swap Test Group"},
+        headers=HEADERS,
+    )
+    group_data = resp.json()["data"]
+    invite_code = group_data["invite_code"]
+
+    await client.post(
+        "/api/v1/groups/join",
+        json={"telegram_id": 6002, "invite_code": invite_code},
+        headers=HEADERS,
+    )
+
+    resp = await client.post(
+        "/api/v1/tasks/",
+        json={
+            "telegram_id": 6001,
+            "group_id": group_data["group_id"],
+            "name": "Swap Test Task",
+            "require_photo": False,
+        },
+        headers=HEADERS,
+    )
+    task_id = resp.json()["data"]["task_id"]
+
+    resp = await client.get(f"/api/v1/tasks/{task_id}/queue/preview", headers=HEADERS)
+    entries_before = resp.json()["data"]
+    assert len(entries_before) == 2
+    member_id_first = entries_before[0]["member_id"]
+    member_id_second = entries_before[1]["member_id"]
+    assert entries_before[0]["is_locked"] is True
+
+    resp = await client.post(
+        f"/api/v1/tasks/{task_id}/queue/swap",
+        json={
+            "telegram_id": 6001,
+            "member_id_a": member_id_first,
+            "member_id_b": member_id_second,
+        },
+        headers=HEADERS,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["success"] is True
+
+    resp = await client.get(f"/api/v1/tasks/{task_id}/queue/preview", headers=HEADERS)
+    entries_after = resp.json()["data"]
+    assert entries_after[0]["member_id"] == member_id_second
+    assert entries_after[1]["member_id"] == member_id_first
+
+
 async def test_invalid_invite_code_returns_failure(client):
     await client.post(
         "/api/v1/users/register",

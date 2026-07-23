@@ -20,7 +20,8 @@ class TaskRepository:
         description: str | None = None,
         schedule_type: str = "daily",
         schedule_interval_days: int | None = None,
-        reminder_interval_minutes: int = 60,
+        reminder_interval_min_minutes: int = 60,
+        reminder_interval_max_minutes: int = 60,
         reminder_start_hour: int = 8,
         reminder_end_hour: int = 22,
         require_photo: bool = True,
@@ -36,7 +37,8 @@ class TaskRepository:
             created_by_user_id=created_by_user_id,
             schedule_type=schedule_type,
             schedule_interval_days=schedule_interval_days,
-            reminder_interval_minutes=reminder_interval_minutes,
+            reminder_interval_min_minutes=reminder_interval_min_minutes,
+            reminder_interval_max_minutes=reminder_interval_max_minutes,
             reminder_start_hour=reminder_start_hour,
             reminder_end_hour=reminder_end_hour,
             require_photo=require_photo,
@@ -72,7 +74,13 @@ class TaskRepository:
         await self._session.flush()
 
     async def delete(self, task: Task) -> None:
-        from ..infrastructure.models.task import Penalty, TaskAssignment, TaskCompletion, TaskQueueEntry
+        from ..infrastructure.models.task import (
+            CompletionVote,
+            Penalty,
+            TaskAssignment,
+            TaskCompletion,
+            TaskQueueEntry,
+        )
         from sqlalchemy import delete
 
         # Get all assignment IDs of the task
@@ -81,6 +89,18 @@ class TaskRepository:
         assignment_ids = list(assignment_ids_res.scalars().all())
 
         if assignment_ids:
+            # Get all completion IDs of those assignments
+            completion_ids_stmt = select(TaskCompletion.id).where(
+                TaskCompletion.assignment_id.in_(assignment_ids)
+            )
+            completion_ids_res = await self._session.execute(completion_ids_stmt)
+            completion_ids = list(completion_ids_res.scalars().all())
+
+            if completion_ids:
+                # Delete votes referencing those completions first (FK)
+                await self._session.execute(
+                    delete(CompletionVote).where(CompletionVote.completion_id.in_(completion_ids))
+                )
             # Delete completions of those assignments
             await self._session.execute(
                 delete(TaskCompletion).where(TaskCompletion.assignment_id.in_(assignment_ids))

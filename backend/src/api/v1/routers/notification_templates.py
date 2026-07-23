@@ -8,7 +8,13 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ....api.auth_deps import ensure_admin_for_group, verify_bot_or_mini_app
+from ....api.auth_deps import (
+    Identity,
+    ensure_actor_can_access_group,
+    ensure_actor_owns_telegram_id,
+    ensure_admin_for_group,
+    verify_bot_or_mini_app,
+)
 from ....api.deps import get_session, get_user_service
 from ....repositories.notification_repository import (
     DEFAULT_TEMPLATES,
@@ -46,11 +52,13 @@ async def list_templates(
     group_id: int,
     language: str = "uz",
     session: AsyncSession = Depends(get_session),
+    identity: Identity = Depends(verify_bot_or_mini_app),
 ):
     """
     Guruhning barcha shablon turlari bo'yicha joriy matnini qaytaradi
     (agar guruh o'ziga xos shablon belgilamagan bo'lsa - standart matn qaytadi).
     """
+    await ensure_actor_can_access_group(identity, group_id, session)
     repo = NotificationTemplateRepository(session)
     data = {
         template_type: await repo.get_template(group_id, template_type, language)
@@ -64,6 +72,7 @@ async def set_template(
     payload: SetTemplateRequest,
     session: AsyncSession = Depends(get_session),
     user_service: UserService = Depends(get_user_service),
+    identity: Identity = Depends(verify_bot_or_mini_app),
 ):
     if payload.template_type not in VALID_TEMPLATE_TYPES:
         return ApiResponse(
@@ -71,6 +80,7 @@ async def set_template(
             message=f"Noto'g'ri shablon turi. Ruxsat etilganlar: {', '.join(sorted(VALID_TEMPLATE_TYPES))}",
         )
 
+    await ensure_actor_owns_telegram_id(identity, payload.telegram_id, session)
     user = await user_service.get_by_telegram_id(payload.telegram_id)
     if user is None:
         return ApiResponse(success=False, message="Avval /start orqali ro'yxatdan o'ting")

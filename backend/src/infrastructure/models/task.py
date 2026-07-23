@@ -9,7 +9,7 @@ import enum
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db.session import Base
@@ -33,6 +33,12 @@ class TaskStatus(str, enum.Enum):
     OVERDUE = "overdue"
 
 
+class CompletionApprovalStatus(str, enum.Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
 class Task(Base):
     __tablename__ = "tasks"
 
@@ -47,7 +53,8 @@ class Task(Base):
     schedule_interval_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     schedule_cron: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
-    reminder_interval_minutes: Mapped[int] = mapped_column(Integer, default=60)
+    reminder_interval_min_minutes: Mapped[int] = mapped_column(Integer, default=60)
+    reminder_interval_max_minutes: Mapped[int] = mapped_column(Integer, default=60)
     reminder_start_hour: Mapped[int] = mapped_column(Integer, default=8)
     reminder_end_hour: Mapped[int] = mapped_column(Integer, default=22)
 
@@ -88,6 +95,11 @@ class TaskAssignment(Base):
     """Ma'lum bir kunga tayinlangan vazifa nusxasi (bugungi/kechagi holat)."""
 
     __tablename__ = "task_assignments"
+    __table_args__ = (
+        UniqueConstraint(
+            "task_id", "member_id", "assigned_date", name="ux_task_assignments_task_member_date"
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), nullable=False)
@@ -117,6 +129,33 @@ class TaskCompletion(Base):
     completed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+    approval_status: Mapped[CompletionApprovalStatus] = mapped_column(
+        default=CompletionApprovalStatus.PENDING
+    )
+    """Guruh a'zolari ovoz berish holati - rasm faqat tasdiqlangach "haqiqiy" bajarish hisoblanadi."""
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    votes: Mapped[list["CompletionVote"]] = relationship(back_populates="completion")
+
+
+class CompletionVote(Base):
+    """Guruh a'zosining bitta TaskCompletion uchun bergan ovozi (tasdiqlash/rad etish)."""
+
+    __tablename__ = "completion_votes"
+    __table_args__ = (
+        UniqueConstraint(
+            "completion_id", "voter_member_id", name="ux_completion_votes_completion_voter"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    completion_id: Mapped[int] = mapped_column(ForeignKey("task_completion.id"), nullable=False)
+    voter_member_id: Mapped[int] = mapped_column(ForeignKey("members.id"), nullable=False)
+    approve: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    completion: Mapped["TaskCompletion"] = relationship(back_populates="votes")
 
 
 class Penalty(Base):

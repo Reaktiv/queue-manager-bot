@@ -3,10 +3,15 @@ Repository Layer: Group va Member bilan ishlash.
 """
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ..infrastructure.models.group import Group, Member, MemberRole
+
+
+class DuplicateActiveMembershipError(Exception):
+    """Foydalanuvchi shu guruhda allaqachon faol a'zolikka ega (DB unique constraint)."""
 
 
 class GroupRepository:
@@ -50,16 +55,33 @@ class GroupRepository:
         return list(result.scalars().all())
 
     async def get_membership(self, user_id: int, group_id: int) -> Member | None:
-        stmt = select(Member).where(Member.user_id == user_id, Member.group_id == group_id)
+        """
+        Berilgan foydalanuvchi/guruh uchun a'zolikni qaytaradi. `ux_members_user_group_active`
+        unique indexi bir vaqtda faqat bitta FAOL a'zolikka kafolat beradi, lekin tarixiy
+        (is_active=false) qatorlar ham mavjud bo'lishi mumkin - shuning uchun `scalar_one_or_none`
+        o'rniga eng faol/eng yangi qatorni tanlaymiz, aks holda `MultipleResultsFound` xatosi
+        chiqib, foydalanuvchi shu guruh bilan bog'liq HAR QANDAY so'rovda 500 olib qolaveradi.
+        """
+        stmt = (
+            select(Member)
+            .where(Member.user_id == user_id, Member.group_id == group_id)
+            .order_by(Member.is_active.desc(), Member.joined_at.desc())
+            .limit(1)
+        )
         result = await self._session.execute(stmt)
-        return result.scalar_one_or_none()
+        return result.scalars().first()
 
     async def add_member(
         self, user_id: int, group_id: int, role: MemberRole = MemberRole.MEMBER
     ) -> Member:
         member = Member(user_id=user_id, group_id=group_id, role=role)
         self._session.add(member)
-        await self._session.flush()
+        try:
+            async with self._session.begin_nested():
+                await self._session.flush()
+        except IntegrityError as exc:
+            self._session.expunge(member)
+            raise DuplicateActiveMembershipError() from exc
         return member
 
     async def get_member_by_id(self, member_id: int) -> Member | None:
@@ -70,6 +92,26 @@ class GroupRepository:
         if member:
             member.is_on_vacation = is_on_vacation
             await self._session.flush()
+
+    async def set_role(self, member_id: int, role: MemberRole) -> Member | None:
+        member = await self._session.get(Member, member_id)
+        if member is None:
+            return None
+        member.role = role
+        await self._session.flush()
+        return member
+
+    async def count_admins(self, group_id: int) -> int:
+        """Guruhdagi faol ADMIN a'zolar soni - oxirgi adminni tushirib qo'yishning oldini olish uchun."""
+        from sqlalchemy import func
+
+        stmt = select(func.count(Member.id)).where(
+            Member.group_id == group_id,
+            Member.role == MemberRole.ADMIN,
+            Member.is_active.is_(True),
+        )
+        result = await self._session.execute(stmt)
+        return int(result.scalar_one())
 
     async def list_groups_for_user(self, user_id: int) -> list[tuple[Group, Member]]:
         stmt = (
@@ -97,6 +139,18 @@ class GroupRepository:
 
         stmt = select(func.count(Member.id)).where(
             Member.group_id == group_id, Member.is_active.is_(True)
+        )
+        result = await self._session.execute(stmt)
+        return int(result.scalar_one())
+
+    async def count_other_active_members(self, group_id: int, exclude_member_id: int) -> int:
+        """Vazifani bajargan a'zodan tashqari, ovoz bera oladigan a'zolar soni."""
+        from sqlalchemy import func
+
+        stmt = select(func.count(Member.id)).where(
+            Member.group_id == group_id,
+            Member.is_active.is_(True),
+            Member.id != exclude_member_id,
         )
         result = await self._session.execute(stmt)
         return int(result.scalar_one())

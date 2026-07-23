@@ -8,7 +8,7 @@ import enum
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, DateTime, Enum, ForeignKey, String, func
+from sqlalchemy import BigInteger, DateTime, Enum, ForeignKey, Index, String, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db.session import Base
@@ -45,6 +45,15 @@ class Member(Base):
     """Foydalanuvchining ma'lum bir guruhdagi a'zoligi (rol, holat)."""
 
     __tablename__ = "members"
+    __table_args__ = (
+        Index(
+            "ux_members_user_group_active",
+            "user_id",
+            "group_id",
+            unique=True,
+            postgresql_where=text("is_active = true"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)

@@ -46,7 +46,8 @@ class TaskService:
         next_rem_at = calculate_next_reminder_at(
             now_utc=datetime.now(timezone.utc),
             timezone_str=group.timezone if group else "Asia/Tashkent",
-            interval_minutes=task.reminder_interval_minutes,
+            interval_min_minutes=task.reminder_interval_min_minutes,
+            interval_max_minutes=task.reminder_interval_max_minutes,
             start_hour=task.reminder_start_hour,
             end_hour=task.reminder_end_hour
         )
@@ -92,7 +93,8 @@ class TaskService:
         task.next_reminder_at = calculate_next_reminder_at(
             now_utc=now_utc,
             timezone_str=group.timezone,
-            interval_minutes=task.reminder_interval_minutes,
+            interval_min_minutes=task.reminder_interval_min_minutes,
+            interval_max_minutes=task.reminder_interval_max_minutes,
             start_hour=task.reminder_start_hour,
             end_hour=task.reminder_end_hour,
         )
@@ -123,7 +125,8 @@ class TaskService:
         description: str | None = None,
         schedule_type: str = "daily",
         schedule_interval_days: int | None = None,
-        reminder_interval_minutes: int = 60,
+        reminder_interval_min_minutes: int = 60,
+        reminder_interval_max_minutes: int = 60,
         reminder_start_hour: int = 8,
         reminder_end_hour: int = 22,
         require_photo: bool = True,
@@ -180,7 +183,8 @@ class TaskService:
             created_by_user_id=created_by_user_id,
             schedule_type=schedule_type,
             schedule_interval_days=schedule_interval_days,
-            reminder_interval_minutes=reminder_interval_minutes,
+            reminder_interval_min_minutes=reminder_interval_min_minutes,
+            reminder_interval_max_minutes=reminder_interval_max_minutes,
             reminder_start_hour=reminder_start_hour,
             reminder_end_hour=reminder_end_hour,
             require_photo=require_photo,
@@ -224,7 +228,16 @@ class TaskService:
         task = await self._task_repo.get_by_id(task_id)
         if task is None:
             return None
+        reminder_fields = {
+            "reminder_interval_min_minutes",
+            "reminder_interval_max_minutes",
+            "reminder_start_hour",
+            "reminder_end_hour",
+        }
+        touches_reminder_settings = any(fields.get(k) is not None for k in reminder_fields)
         updated = await self._task_repo.update(task, **fields)
+        if touches_reminder_settings:
+            await self._update_task_next_reminder_at(updated)
         await self._audit_repo.log(
             action="task_edited",
             group_id=task.group_id,
@@ -293,9 +306,9 @@ class TaskService:
         )
 
     async def admin_swap(
-        self, task_id: int, admin_user_id: int, entry_id_a: int, entry_id_b: int
+        self, task_id: int, admin_user_id: int, member_id_a: int, member_id_b: int
     ) -> None:
-        await self._queue_service.admin_swap(task_id, entry_id_a, entry_id_b)
+        await self._queue_service.admin_swap(task_id, member_id_a, member_id_b)
         task = await self._task_repo.get_by_id(task_id)
         await self._audit_repo.log(
             action="queue_updated",
@@ -303,7 +316,7 @@ class TaskService:
             user_id=admin_user_id,
             entity_type="task",
             entity_id=task_id,
-            details={"operation": "swap", "entry_a": entry_id_a, "entry_b": entry_id_b},
+            details={"operation": "swap", "member_a": member_id_a, "member_b": member_id_b},
         )
 
     async def get_queue_preview(self, task_id: int) -> list:

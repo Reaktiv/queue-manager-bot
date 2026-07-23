@@ -8,7 +8,7 @@ Muhim qoidalar:
 """
 
 from ..infrastructure.models.group import Group, Member, MemberRole
-from ..repositories.group_repository import GroupRepository
+from ..repositories.group_repository import DuplicateActiveMembershipError, GroupRepository
 from ..repositories.task_repository import TaskRepository
 from ..repositories.queue_repository import QueueRepository
 from ..utils.invite_code import generate_invite_code
@@ -20,6 +20,14 @@ class AlreadyMemberError(Exception):
 
 class InvalidInviteCodeError(Exception):
     """Taklif kodi topilmadi yoki guruh faol emas."""
+
+
+class MemberNotFoundError(Exception):
+    """Berilgan member_id shu guruhda topilmadi."""
+
+
+class LastAdminError(Exception):
+    """Guruhning yagona adminini oddiy a'zoga tushirib bo'lmaydi - guruh boshqaruvsiz qolib ketadi."""
 
 
 class GroupService:
@@ -71,9 +79,14 @@ class GroupService:
         if existing_membership and existing_membership.is_active:
             raise AlreadyMemberError()
 
-        member = await self._repo.add_member(
-            user_id=user_id, group_id=group.id, role=MemberRole.MEMBER
-        )
+        try:
+            member = await self._repo.add_member(
+                user_id=user_id, group_id=group.id, role=MemberRole.MEMBER
+            )
+        except DuplicateActiveMembershipError as exc:
+            # Bir vaqtda ikkita "guruhga qo'shilish" so'rovi yuborilgan (masalan, tugmani
+            # ikki marta bosish) - DB unique constraint bittasini rad etdi.
+            raise AlreadyMemberError() from exc
 
         if self._task_repo and self._queue_repo:
             tasks = await self._task_repo.list_by_group(group.id, active_only=True)
@@ -124,6 +137,30 @@ class GroupService:
 
     async def get_member_by_id(self, member_id: int) -> Member | None:
         return await self._repo.get_member_by_id(member_id)
+
+    async def set_member_role(self, group_id: int, member_id: int, role: MemberRole) -> Member:
+        """
+        Guruh a'zosini ADMIN yoki oddiy MEMBER qiladi. Guruh yaratuvchisi bilan
+        cheklanmagan - istalgan mavjud admin boshqa a'zoni ham admin qila oladi,
+        shunda vazifalarni yaratish/tahrirlash faqat "guruh egasi"ga emas, balki
+        barcha adminlarga tegishli bo'ladi.
+
+        Guruhning oxirgi adminini oddiy a'zoga tushirishga yo'l qo'yilmaydi -
+        aks holda guruh hech kim tomonidan boshqarilmay qolib ketardi.
+        """
+        member = await self._repo.get_member_by_id(member_id)
+        if member is None or member.group_id != group_id or not member.is_active:
+            raise MemberNotFoundError()
+
+        if member.role == MemberRole.ADMIN and role == MemberRole.MEMBER:
+            admin_count = await self._repo.count_admins(group_id)
+            if admin_count <= 1:
+                raise LastAdminError()
+
+        updated = await self._repo.set_role(member_id, role)
+        if updated is None:
+            raise MemberNotFoundError()
+        return updated
 
     async def list_groups_for_user(self, user_id: int):
         return await self._repo.list_groups_for_user(user_id)

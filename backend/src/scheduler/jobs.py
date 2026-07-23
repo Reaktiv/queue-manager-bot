@@ -39,14 +39,94 @@ def _local_hour(group_timezone: str) -> int:
     return datetime.now(DEFAULT_ZONEINFO).hour
 
 
+async def _send_reminder_for_task(
+    session,
+    group,
+    task,
+    now,
+    task_repo,
+    queue_repo,
+    group_repo,
+    user_repo,
+    notification_service,
+) -> None:
+    from ..infrastructure.models.task import TaskAssignment, TaskStatus
+
+    if task.next_reminder_at is None or now < task.next_reminder_at:
+        return
+
+    # IN_PROGRESS holati - a'zo rasmni allaqachon yuborgan, guruh tasdiqlashini
+    # kutmoqda. Bunday holatda "hali bajarmadingiz" eslatmasi noto'g'ri bo'lardi.
+    assignment_stmt = (
+        select(TaskAssignment)
+        .where(
+            TaskAssignment.task_id == task.id,
+            TaskAssignment.status.in_([TaskStatus.PENDING, TaskStatus.OVERDUE]),
+        )
+        .order_by(TaskAssignment.assigned_date.desc())
+        .limit(1)
+    )
+    assignment_result = await session.execute(assignment_stmt)
+    pending_assignment = assignment_result.scalar_one_or_none()
+    if pending_assignment is None:
+        return
+
+    current_entry = await queue_repo.get_current_entry(task.id)
+    if current_entry is None or current_entry.member_id != pending_assignment.member_id:
+        return
+
+    member = await group_repo.get_member_by_id(current_entry.member_id)
+    if member is None or member.is_on_vacation:
+        return
+
+    user = await user_repo.get_by_id(member.user_id)
+    if user is None:
+        return
+
+    text = await notification_service.build_message(
+        group_id=group.id,
+        template_type="reminder",
+        language=user.language,
+        user=user.full_name,
+        task=task.name,
+        group=group.name,
+    )
+
+    await notification_service.send_private_message(user.telegram_id, text)
+    logger.info("reminder_sent_private", task_id=task.id, user_telegram_id=user.telegram_id)
+
+    if group.telegram_chat_id:
+        group_text = await notification_service.build_message(
+            group_id=group.id,
+            template_type="reminder",
+            language=user.language,
+            user=format_telegram_html_mention(user.full_name, user.telegram_id),
+            task=task.name,
+            group=group.name,
+        )
+        await notification_service.send_group_message(group.telegram_chat_id, group_text)
+        logger.info("reminder_sent_group", task_id=task.id, telegram_chat_id=group.telegram_chat_id)
+
+    next_rem = calculate_next_reminder_at(
+        now_utc=now,
+        timezone_str=group.timezone if group else "Asia/Tashkent",
+        interval_min_minutes=task.reminder_interval_min_minutes,
+        interval_max_minutes=task.reminder_interval_max_minutes,
+        start_hour=task.reminder_start_hour,
+        end_hour=task.reminder_end_hour,
+    )
+    task.next_reminder_at = next_rem
+
+
 async def send_reminders() -> None:
     """
     Har bir faol vazifa uchun: agar hozirgi vaqt next_reminder_at dan o'tgan bo'lsa
     va bugungi topshiriq hali bajarilmagan (PENDING) bo'lsa - private va group xabari yuboriladi.
-    """
-    from datetime import timedelta
-    from ..infrastructure.models.task import TaskAssignment, TaskStatus
 
+    Har bir vazifa alohida try/except bilan qayta ishlanadi - bitta vazifadagi
+    kutilmagan xatolik (masalan, eskidan qolgan noto'g'ri reminder soatlari)
+    boshqa barcha guruhlar uchun eslatmalar yuborilishini to'xtatib qo'ymasligi kerak.
+    """
     async with async_session_factory() as session:
         task_repo = TaskRepository(session)
         queue_repo = QueueRepository(session)
@@ -63,69 +143,62 @@ async def send_reminders() -> None:
         for group in groups:
             tasks = await task_repo.list_by_group(group.id, active_only=True)
             for task in tasks:
-                if task.next_reminder_at is None or now < task.next_reminder_at:
-                    continue
-
-                assignment_stmt = (
-                    select(TaskAssignment)
-                    .where(
-                        TaskAssignment.task_id == task.id,
-                        TaskAssignment.status.in_([TaskStatus.PENDING, TaskStatus.IN_PROGRESS, TaskStatus.OVERDUE]),
+                try:
+                    await _send_reminder_for_task(
+                        session, group, task, now, task_repo, queue_repo, group_repo, user_repo,
+                        notification_service,
                     )
-                    .order_by(TaskAssignment.assigned_date.desc())
-                    .limit(1)
-                )
-                assignment_result = await session.execute(assignment_stmt)
-                pending_assignment = assignment_result.scalar_one_or_none()
-                if pending_assignment is None:
-                    continue
-
-                current_entry = await queue_repo.get_current_entry(task.id)
-                if current_entry is None or current_entry.member_id != pending_assignment.member_id:
-                    continue
-
-                member = await group_repo.get_member_by_id(current_entry.member_id)
-                if member is None or member.is_on_vacation:
-                    continue
-
-                user = await user_repo.get_by_id(member.user_id)
-                if user is None:
-                    continue
-
-                text = await notification_service.build_message(
-                    group_id=group.id,
-                    template_type="reminder",
-                    language=user.language,
-                    user=user.full_name,
-                    task=task.name,
-                    group=group.name,
-                )
-
-                await notification_service.send_private_message(user.telegram_id, text)
-                logger.info("reminder_sent_private", task_id=task.id, user_telegram_id=user.telegram_id)
-
-                if group.telegram_chat_id:
-                    group_text = await notification_service.build_message(
-                        group_id=group.id,
-                        template_type="reminder",
-                        language=user.language,
-                        user=format_telegram_html_mention(user.full_name, user.telegram_id),
-                        task=task.name,
-                        group=group.name,
-                    )
-                    await notification_service.send_group_message(group.telegram_chat_id, group_text)
-                    logger.info("reminder_sent_group", task_id=task.id, telegram_chat_id=group.telegram_chat_id)
-
-                next_rem = calculate_next_reminder_at(
-                    now_utc=now,
-                    timezone_str=group.timezone if group else "Asia/Tashkent",
-                    interval_minutes=task.reminder_interval_minutes,
-                    start_hour=task.reminder_start_hour,
-                    end_hour=task.reminder_end_hour,
-                )
-                task.next_reminder_at = next_rem
+                except Exception:
+                    logger.exception("send_reminders_task_failed", task_id=task.id, group_id=group.id)
 
         await session.commit()
+
+
+async def _process_overdue_assignment(
+    session, assignment, assignment_repo, penalty_service, task_repo, group_repo, user_repo,
+    notification_service,
+) -> None:
+    await assignment_repo.mark_overdue(assignment)
+    should_warn = await penalty_service.register_missed_day(
+        member_id=assignment.member_id,
+        task_id=assignment.task_id,
+        assignment_id=assignment.id,
+    )
+
+    task = await task_repo.get_by_id(assignment.task_id)
+    member = await group_repo.get_member_by_id(assignment.member_id)
+    if task is None or member is None:
+        return
+    user = await user_repo.get_by_id(member.user_id)
+    if user is None:
+        return
+
+    text = await notification_service.build_message(
+        group_id=task.group_id,
+        template_type="overdue",
+        language=user.language,
+        user=user.full_name,
+        task=task.name,
+    )
+    await notification_service.send_private_message(user.telegram_id, text)
+
+    if should_warn:
+        group = await group_repo.get_by_id(task.group_id)
+        if group and group.telegram_chat_id:
+            warning_text = await notification_service.build_message(
+                group_id=task.group_id,
+                template_type="penalty",
+                language=user.language,
+                user=format_telegram_html_mention(user.full_name, user.telegram_id),
+                task=task.name,
+            )
+            await notification_service.send_group_message(
+                group.telegram_chat_id, warning_text
+            )
+
+    logger.info(
+        "task_marked_overdue", task_id=assignment.task_id, member_id=assignment.member_id
+    )
 
 
 async def check_overdue_tasks() -> None:
@@ -136,6 +209,9 @@ async def check_overdue_tasks() -> None:
     3. 2+ kun ketma-ket o'tkazib yuborilgan bo'lsa - guruhga ogohlantirish.
     4. Navbat HECH QACHON o'chmaydi - ertaga ham shu a'zoda qoladi
        (Queue Lock saqlanadi, ya'ni hech narsa qilmaymiz - u allaqachon qulflangan).
+
+    Har bir assignment alohida try/except bilan qayta ishlanadi - bitta a'zodagi
+    xatolik boshqalarga jarima/ogohlantirish yuborilishini to'xtatmasligi kerak.
     """
     async with async_session_factory() as session:
         assignment_repo = AssignmentRepository(session)
@@ -151,58 +227,58 @@ async def check_overdue_tasks() -> None:
         overdue_assignments = await assignment_repo.get_pending_overdue(now)
 
         for assignment in overdue_assignments:
-            await assignment_repo.mark_overdue(assignment)
-            should_warn = await penalty_service.register_missed_day(
-                member_id=assignment.member_id,
-                task_id=assignment.task_id,
-                assignment_id=assignment.id,
-            )
-
-            task = await task_repo.get_by_id(assignment.task_id)
-            member = await group_repo.get_member_by_id(assignment.member_id)
-            if task is None or member is None:
-                continue
-            user = await user_repo.get_by_id(member.user_id)
-            if user is None:
-                continue
-
-            text = await notification_service.build_message(
-                group_id=task.group_id,
-                template_type="overdue",
-                language=user.language,
-                user=user.full_name,
-                task=task.name,
-            )
-            await notification_service.send_private_message(user.telegram_id, text)
-
-            if should_warn:
-                group = await group_repo.get_by_id(task.group_id)
-                if group and group.telegram_chat_id:
-                    warning_text = await notification_service.build_message(
-                        group_id=task.group_id,
-                        template_type="penalty",
-                        language=user.language,
-                        user=format_telegram_html_mention(user.full_name, user.telegram_id),
-                        task=task.name,
-                    )
-                    await notification_service.send_group_message(
-                        group.telegram_chat_id, warning_text
-                    )
-
-            logger.info(
-                "task_marked_overdue", task_id=assignment.task_id, member_id=assignment.member_id
-            )
+            try:
+                await _process_overdue_assignment(
+                    session, assignment, assignment_repo, penalty_service, task_repo, group_repo,
+                    user_repo, notification_service,
+                )
+            except Exception:
+                logger.exception(
+                    "check_overdue_tasks_assignment_failed", assignment_id=assignment.id
+                )
 
         await session.commit()
+
+
+async def _generate_assignment_for_task(
+    session, group, task, local_today, queue_repo, assignment_repo,
+) -> None:
+    from datetime import timedelta
+
+    if task.next_execution_date:
+        if local_today < utc_to_local_date(task.next_execution_date, group.timezone):
+            return
+
+    current_entry = await queue_repo.get_current_entry(task.id)
+    if current_entry is None:
+        return
+
+    await assignment_repo.get_or_create_for_local_date(
+        task.id,
+        current_entry.member_id,
+        local_today,
+        group.timezone,
+    )
+
+    interval = task.schedule_interval_days or 1
+    next_local_date = local_today + timedelta(days=interval)
+    task.next_execution_date = local_date_to_utc_start(next_local_date, group.timezone)
+
+    task.next_reminder_at = reminder_window_start_utc(
+        local_date=local_today,
+        timezone_str=group.timezone,
+        start_hour=task.reminder_start_hour,
+    )
 
 
 async def generate_daily_assignments() -> None:
     """
     Har kuni (masalan, 00:05 da) faol vazifalar uchun bugungi
     assignment'larni oldindan yaratib qo'yadi (agar bugun bajarish kuni bo'lsa).
-    """
-    from datetime import timedelta
 
+    Har bir vazifa alohida try/except bilan qayta ishlanadi - bitta vazifadagi
+    xatolik boshqa guruhlar/vazifalar uchun assignment yaratilishini to'xtatmasligi kerak.
+    """
     async with async_session_factory() as session:
         task_repo = TaskRepository(session)
         queue_repo = QueueRepository(session)
@@ -217,39 +293,73 @@ async def generate_daily_assignments() -> None:
             local_today = get_local_today(group.timezone, now)
             tasks = await task_repo.list_by_group(group.id, active_only=True)
             for task in tasks:
-                if task.next_execution_date:
-                    if local_today < utc_to_local_date(task.next_execution_date, group.timezone):
-                        continue
-
-                current_entry = await queue_repo.get_current_entry(task.id)
-                if current_entry is None:
-                    continue
-
-                await assignment_repo.get_or_create_for_local_date(
-                    task.id,
-                    current_entry.member_id,
-                    local_today,
-                    group.timezone,
-                )
-
-                interval = task.schedule_interval_days or 1
-                next_local_date = local_today + timedelta(days=interval)
-                task.next_execution_date = local_date_to_utc_start(next_local_date, group.timezone)
-
-                task.next_reminder_at = reminder_window_start_utc(
-                    local_date=local_today,
-                    timezone_str=group.timezone,
-                    start_hour=task.reminder_start_hour,
-                )
+                try:
+                    await _generate_assignment_for_task(
+                        session, group, task, local_today, queue_repo, assignment_repo,
+                    )
+                except Exception:
+                    logger.exception(
+                        "generate_daily_assignments_task_failed", task_id=task.id, group_id=group.id
+                    )
 
         await session.commit()
         logger.info("daily_assignments_generated")
+
+
+async def _send_pre_warning_for_task(
+    session, group, task, local_now, local_hour, tz, queue_repo, group_repo, user_repo,
+    notification_service,
+) -> None:
+    if not task.next_execution_date:
+        return
+
+    # Difference in days
+    task_local_exec = task.next_execution_date.astimezone(tz)
+    days_left = (task_local_exec.date() - local_now.date()).days
+
+    if days_left != 1:
+        return
+
+    # Check if already sent for this execution date
+    if task.last_pre_warning_sent_date:
+        last_sent_local = task.last_pre_warning_sent_date.astimezone(tz)
+        if last_sent_local.date() == task_local_exec.date():
+            return
+
+    # Send at reminder_start_hour (or if we are past it and haven't sent it yet)
+    if local_hour < task.reminder_start_hour:
+        return
+
+    current_entry = await queue_repo.get_current_entry(task.id)
+    if current_entry is None:
+        return
+
+    member = await group_repo.get_member_by_id(current_entry.member_id)
+    if member is None or member.is_on_vacation:
+        return
+
+    user = await user_repo.get_by_id(member.user_id)
+    if user is None:
+        return
+
+    text = (
+        f"🔔 <b>Eslatma (1 kun oldin):</b>\n\n"
+        f"Ertaga sizning <b>{task.name}</b> vazifasida navbatingiz keladi!"
+    )
+
+    success = await notification_service.send_private_message(user.telegram_id, text)
+    if success:
+        task.last_pre_warning_sent_date = task.next_execution_date
+        logger.info("pre_warning_sent", task_id=task.id, user_telegram_id=user.telegram_id)
 
 
 async def send_pre_warnings() -> None:
     """
     Vazifaga 1 kun qolganda foydalanuvchini ogohlantirish xabari yuboriladi.
     Xabar faqat 1 marta, guruhning reminder_start_hour soatida yuboriladi.
+
+    Har bir vazifa alohida try/except bilan qayta ishlanadi - bitta vazifadagi
+    xatolik boshqa vazifalar uchun ogohlantirish yuborilishini to'xtatmasligi kerak.
     """
     async with async_session_factory() as session:
         task_repo = TaskRepository(session)
@@ -271,42 +381,14 @@ async def send_pre_warnings() -> None:
 
             tasks = await task_repo.list_by_group(group.id, active_only=True)
             for task in tasks:
-                if not task.next_execution_date:
-                    continue
-
-                # Difference in days
-                task_local_exec = task.next_execution_date.astimezone(tz)
-                days_left = (task_local_exec.date() - local_now.date()).days
-
-                if days_left == 1:
-                    # Check if already sent for this execution date
-                    if task.last_pre_warning_sent_date:
-                        last_sent_local = task.last_pre_warning_sent_date.astimezone(tz)
-                        if last_sent_local.date() == task_local_exec.date():
-                            continue
-
-                    # Send at reminder_start_hour (or if we are past it and haven't sent it yet)
-                    if local_hour >= task.reminder_start_hour:
-                        current_entry = await queue_repo.get_current_entry(task.id)
-                        if current_entry is None:
-                            continue
-
-                        member = await group_repo.get_member_by_id(current_entry.member_id)
-                        if member is None or member.is_on_vacation:
-                            continue
-
-                        user = await user_repo.get_by_id(member.user_id)
-                        if user is None:
-                            continue
-
-                        text = (
-                            f"🔔 <b>Eslatma (1 kun oldin):</b>\n\n"
-                            f"Ertaga sizning <b>{task.name}</b> vazifasida navbatingiz keladi!"
-                        )
-
-                        success = await notification_service.send_private_message(user.telegram_id, text)
-                        if success:
-                            task.last_pre_warning_sent_date = task.next_execution_date
-                            logger.info("pre_warning_sent", task_id=task.id, user_telegram_id=user.telegram_id)
+                try:
+                    await _send_pre_warning_for_task(
+                        session, group, task, local_now, local_hour, tz, queue_repo, group_repo,
+                        user_repo, notification_service,
+                    )
+                except Exception:
+                    logger.exception(
+                        "send_pre_warnings_task_failed", task_id=task.id, group_id=group.id
+                    )
 
         await session.commit()

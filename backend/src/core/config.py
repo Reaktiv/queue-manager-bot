@@ -8,7 +8,7 @@ tamoyiliga mos). Hech qachon secret'larni kodga yozmang.
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,10 +17,28 @@ class Settings(BaseSettings):
 
     # --- Ilova ---
     APP_NAME: str = "QueueManagerBot"
-    APP_ENV: str = Field(default="development")  # development | staging | production
-    DEBUG: bool = Field(default=True)
+    # development | testing | staging | production
+    # Fail-closed: "production" ni default qilamiz, chunki "development" qiymati
+    # auth_deps.py/telegram_auth.py'da barcha JWT/HMAC tekshiruvlarini chetlab
+    # o'tadi. APP_ENV o'zgaruvchisi deploy konfiguratsiyasida yo'qolib qolsa ham
+    # ilova xavfsiz (yopiq) holatda ishga tushishi kerak.
+    APP_ENV: str = Field(default="production")
+    DEBUG: bool = Field(default=False)
     APP_TIMEZONE: str = "Asia/Tashkent"
     EMBEDDED_SCHEDULER_ENABLED: bool = Field(default=True)
+
+    # --- CORS ---
+    # Vergul bilan ajratilgan ruxsat etilgan origin'lar ro'yxati (masalan,
+    # "https://miniapp.example.com,https://admin.example.com"). DEBUG bilan
+    # bog'liq emas - CORS har doim shu ro'yxat orqali boshqariladi, aks holda
+    # DEBUG=false bo'lganda ham xatolik bilan production Mini App uzilib qolishi mumkin.
+    ALLOWED_ORIGINS: str = Field(default="")
+
+    @property
+    def cors_origins(self) -> list[str]:
+        if self.DEBUG and not self.ALLOWED_ORIGINS:
+            return ["*"]
+        return [origin.strip() for origin in self.ALLOWED_ORIGINS.split(",") if origin.strip()]
 
     # --- Database ---
     # --- Database ---
@@ -75,6 +93,35 @@ class Settings(BaseSettings):
     # --- Til ---
     DEFAULT_LANGUAGE: str = "uz"
     SUPPORTED_LANGUAGES: list[str] = ["uz", "en", "ru"]
+
+    @model_validator(mode="after")
+    def _fail_fast_on_insecure_production_defaults(self) -> "Settings":
+        """
+        APP_ENV=production bo'lganda ilova hech qachon placeholder maxfiy
+        kalitlar (masalan, "CHANGE_ME_IN_PRODUCTION") bilan ishga tushmasligi
+        kerak - bu qiymatlar ochiq kodda ko'rinib turibdi, shuning uchun
+        ularni o'zgartirmasdan production'ga chiqarish token/JWT'ni har kimga
+        soxtalashtirish imkonini beradi.
+        """
+        if self.APP_ENV != "production":
+            return self
+
+        insecure_fields = []
+        if not self.JWT_SECRET_KEY or self.JWT_SECRET_KEY == "CHANGE_ME_IN_PRODUCTION":
+            insecure_fields.append("JWT_SECRET_KEY")
+        if not self.BOT_INTERNAL_SECRET or self.BOT_INTERNAL_SECRET == "CHANGE_ME_IN_PRODUCTION":
+            insecure_fields.append("BOT_INTERNAL_SECRET")
+        if not self.BOT_TOKEN:
+            insecure_fields.append("BOT_TOKEN")
+
+        if insecure_fields:
+            raise ValueError(
+                "APP_ENV=production bo'lganda quyidagi maxfiy sozlamalar hali ham "
+                f"bo'sh/standart (placeholder) qiymatda: {', '.join(insecure_fields)}. "
+                ".env faylida ularni haqiqiy, tasodifiy qiymatlar bilan to'ldiring "
+                "(yoki lokal ishlash uchun APP_ENV=development/testing qiling)."
+            )
+        return self
 
 
 @lru_cache

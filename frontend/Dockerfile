@@ -2,7 +2,7 @@ FROM node:22-alpine AS build
 
 WORKDIR /app
 COPY package.json package-lock.json* /app/
-RUN npm install
+RUN npm ci
 
 COPY . /app
 ARG VITE_API_BASE_URL=/api

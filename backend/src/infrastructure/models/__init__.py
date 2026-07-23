@@ -8,6 +8,8 @@ from .audit import AuditLog, NotificationTemplate
 from .group import Group, Member, MemberRole
 from .settings import SystemLog, SystemSetting
 from .task import (
+    CompletionApprovalStatus,
+    CompletionVote,
     Penalty,
     ScheduleType,
     Task,
@@ -21,6 +23,8 @@ from .user import User
 __all__ = [
     "AuditLog",
     "NotificationTemplate",
+    "CompletionApprovalStatus",
+    "CompletionVote",
     "Group",
     "Member",
     "MemberRole",

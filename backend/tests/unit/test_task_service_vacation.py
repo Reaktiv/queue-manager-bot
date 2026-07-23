@@ -265,3 +265,46 @@ async def test_create_task_assigns_current_active_member_and_sends_immediate_rem
 async def test_db_session_timezone_is_asia_tashkent(session):
     result = await session.execute(text("select current_setting('TIMEZONE')"))
     assert result.scalar_one() == "Asia/Tashkent"
+
+
+async def test_admin_skip_does_not_crash_when_assignment_has_penalty(session):
+    """
+    Regression: agar joriy (PENDING/IN_PROGRESS/OVERDUE) assignment uchun
+    allaqachon Penalty yozuvi mavjud bo'lsa, admin_skip uni o'chirishga
+    urinib IntegrityError (FK violation) bermasligi kerak - shu qatorni
+    o'chirmasdan chetlab o'tishi kerak.
+    """
+    from backend.src.infrastructure.models.task import Penalty, TaskStatus
+    from backend.src.utils.datetime_utils import get_local_today
+
+    owner, group, member_ids = await _setup_group_with_members(session, [False, False])
+    task_service = _make_task_service(session)
+
+    task = await task_service.create_task_with_queue(
+        group_id=group.id,
+        name="Task",
+        created_by_user_id=owner.id,
+        member_ids=member_ids,
+    )
+
+    # create_task_with_queue allaqachon bugungi kun uchun front a'zoga (member_ids[0])
+    # assignment yaratib qo'ygan (unique constraint tufayli qayta yaratib bo'lmaydi) -
+    # o'shani olib, "muddati o'tgan va jarimalangan" holatga keltiramiz.
+    today = get_local_today(group.timezone)
+    assignment_repo = AssignmentRepository(session)
+    assignment = await assignment_repo.get_or_create_for_local_date(
+        task.id, member_ids[0], today, group.timezone
+    )
+    assignment.status = TaskStatus.OVERDUE
+    await session.flush()
+
+    penalty = Penalty(member_id=member_ids[0], task_id=task.id, assignment_id=assignment.id)
+    session.add(penalty)
+    await session.flush()
+
+    # Bu chaqiruv avval "penalties_assignment_id_fkey" IntegrityError bilan qulardi.
+    await task_service.admin_skip(task.id, owner.id)
+
+    reloaded = await AssignmentRepository(session).get_by_id(assignment.id)
+    assert reloaded is not None
+    assert reloaded.status == TaskStatus.OVERDUE

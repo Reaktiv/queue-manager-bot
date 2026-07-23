@@ -2,6 +2,7 @@
 Sana va vaqt bilan ishlash uchun foydali yordamchi funksiyalar.
 """
 
+import random
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -53,17 +54,23 @@ def reminder_window_start_utc(local_date: date, timezone_str: str, start_hour: i
 def calculate_next_reminder_at(
     now_utc: datetime,
     timezone_str: str,
-    interval_minutes: int,
+    interval_min_minutes: int,
+    interval_max_minutes: int,
     start_hour: int,
     end_hour: int,
 ) -> datetime:
     """
     Keyingi eslatma vaqtini (next_reminder_at) guruh timezone'i va faol soatlari
     (start_hour, end_hour) ni inobatga olgan holda UTC formatida hisoblab beradi.
+    Eslatma intervali [interval_min_minutes, interval_max_minutes] oralig'ida
+    tasodifiy tanlanadi (min == max bo'lsa - qat'iy interval sifatida ishlaydi).
     """
     tz = get_timezone(timezone_str)
     current_utc = ensure_utc(now_utc)
     local_now = current_utc.astimezone(tz)
+
+    lo, hi = sorted((interval_min_minutes, interval_max_minutes))
+    picked_minutes = random.randint(lo, hi) if hi > lo else lo
 
     if local_now.hour < start_hour:
         candidate = local_now.replace(hour=start_hour, minute=0, second=0, microsecond=0)
@@ -72,7 +79,7 @@ def calculate_next_reminder_at(
             hour=start_hour, minute=0, second=0, microsecond=0
         )
     else:
-        candidate = local_now + timedelta(minutes=interval_minutes)
+        candidate = local_now + timedelta(minutes=picked_minutes)
         if candidate.hour >= end_hour:
             candidate = (candidate + timedelta(days=1)).replace(
                 hour=start_hour, minute=0, second=0, microsecond=0

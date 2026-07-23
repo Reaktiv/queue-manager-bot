@@ -1,2 +1,12 @@
 .env
 .idea/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+venv/
+node_modules/
+frontend/dist/
+storage/photos/

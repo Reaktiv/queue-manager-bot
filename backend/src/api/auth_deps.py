@@ -26,32 +26,47 @@ async def verify_internal_secret(x_internal_secret: str = Header(default="")) ->
             detail="Ichki so'rov ruxsatnomasi noto'g'ri",
         )
 
+class Identity:
+    """`verify_bot_or_mini_app` natijasi - so'rovni kim yuborganini bildiradi."""
+
+    def __init__(self, is_bot: bool, user_id: int | None = None) -> None:
+        self.is_bot = is_bot
+        self.user_id = user_id
+
+
 async def verify_bot_or_mini_app(
     x_internal_secret: str = Header(default="", alias="X-Internal-Secret"),
     x_bot_secret: str = Header(default="", alias="X-Bot-Secret"), # 👈 Bot yuborayotgan header ham qo'shildi
     authorization: str = Header(default=""),
-) -> None:
+) -> Identity:
     """
     Ikkala mijoz turini ham qabul qiladi:
     - Telegram bot -> `X-Internal-Secret` yoki `X-Bot-Secret` header orqali
     - React Mini App -> `Authorization: Bearer <JWT>` orqali
 
     Development (Lokal test) muhitida tekshiruv avtomatik o'tkazib yuboriladi.
+
+    Qaytadi: `Identity` - chaqiruvchi bot ekanligini yoki JWT orqali kelgan
+    aniq foydalanuvchi (user_id) ekanligini bildiradi. Router'lar shu
+    identity'ni `ensure_actor_owns_telegram_id` / `ensure_actor_can_access_group`
+    bilan birga ishlatib, so'rov tanasidagi `telegram_id`/`group_id` bilan
+    haqiqiy chaqiruvchi bir xil ekanligini tekshiradi (aks holda boshqa
+    foydalanuvchi nomidan amal bajarish - IDOR - mumkin bo'lib qolardi).
     """
     # 🔴 LOKAL MUHIT UCHUN: Test jarayonida 401 xatolik bermasligi uchun chetlab o'tamiz
     if settings.APP_ENV == "development":
-        return
+        return Identity(is_bot=True)
 
     # 1. Bot tekshiruvi (Ikkala xil header nomini ham tekshiramiz)
     if x_internal_secret == settings.BOT_INTERNAL_SECRET or x_bot_secret == settings.BOT_INTERNAL_SECRET:
-        return
+        return Identity(is_bot=True)
 
     # 2. Mini App (JWT Token) tekshiruvi
     if authorization.startswith("Bearer "):
         token = authorization.removeprefix("Bearer ").strip()
         try:
-            decode_token(token, expected_type="access")
-            return
+            payload = decode_token(token, expected_type="access")
+            return Identity(is_bot=False, user_id=int(payload["sub"]))
         except TokenError:
             pass
 
@@ -60,6 +75,43 @@ async def verify_bot_or_mini_app(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Ruxsat yo'q - to'g'ri maxfiy kalit yoki Bearer token kerak",
     )
+
+
+async def ensure_actor_owns_telegram_id(
+    identity: Identity, telegram_id: int, session: AsyncSession
+) -> None:
+    """
+    Mini App (JWT) orqali kirgan foydalanuvchi faqat o'z `telegram_id`i
+    nomidan amal bajara olishini ta'minlaydi. Aks holda so'rov tanasidagi
+    `telegram_id`ni almashtirib, boshqa (masalan, admin) foydalanuvchi
+    nomidan amal bajarish mumkin bo'lib qolardi. Bot so'rovlari (is_bot)
+    bundan mustasno - bot foydalanuvchini Telegram orqali allaqachon aniqlagan.
+    """
+    if identity.is_bot:
+        return
+    user = await UserRepository(session).get_by_id(identity.user_id)
+    if user is None or user.telegram_id != telegram_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Boshqa foydalanuvchi nomidan amal bajarish taqiqlangan",
+        )
+
+
+async def ensure_actor_can_access_group(
+    identity: Identity, group_id: int, session: AsyncSession
+) -> None:
+    """Mini App foydalanuvchisi faqat o'zi a'zo bo'lgan guruh ma'lumotlarini ko'ra oladi."""
+    if identity.is_bot:
+        return
+    user = await UserRepository(session).get_by_id(identity.user_id)
+    if user and user.is_super_admin:
+        return
+    membership = await GroupRepository(session).get_membership(identity.user_id, group_id)
+    if membership is None or not membership.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Siz bu guruhga tegishli emassiz",
+        )
 
 
 class CurrentUser:

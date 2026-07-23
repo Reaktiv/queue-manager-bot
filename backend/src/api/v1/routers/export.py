@@ -11,10 +11,10 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ....api.auth_deps import verify_bot_or_mini_app
+from ....api.auth_deps import Identity, ensure_actor_can_access_group, verify_bot_or_mini_app
 from ....api.deps import get_session
 from ....infrastructure.models.group import Member
-from ....infrastructure.models.task import Task, TaskAssignment, TaskCompletion
+from ....infrastructure.models.task import CompletionApprovalStatus, Task, TaskAssignment, TaskCompletion
 from ....infrastructure.models.user import User
 
 router = APIRouter(
@@ -29,15 +29,23 @@ class ApiResponse(BaseModel):
 
 
 @router.get("/group/{group_id}/history.csv")
-async def export_history_csv(group_id: int, session: AsyncSession = Depends(get_session)):
+async def export_history_csv(
+    group_id: int,
+    session: AsyncSession = Depends(get_session),
+    identity: Identity = Depends(verify_bot_or_mini_app),
+):
     """Guruhning butun bajarish tarixini CSV formatida eksport qiladi."""
+    await ensure_actor_can_access_group(identity, group_id, session)
     stmt = (
         select(TaskCompletion, TaskAssignment, Task, User)
         .join(TaskAssignment, TaskCompletion.assignment_id == TaskAssignment.id)
         .join(Task, TaskAssignment.task_id == Task.id)
         .join(Member, TaskCompletion.member_id == Member.id)
         .join(User, Member.user_id == User.id)
-        .where(Task.group_id == group_id)
+        .where(
+            Task.group_id == group_id,
+            TaskCompletion.approval_status == CompletionApprovalStatus.APPROVED,
+        )
         .order_by(TaskCompletion.completed_at.desc())
     )
     result = await session.execute(stmt)
@@ -66,8 +74,13 @@ async def export_history_csv(group_id: int, session: AsyncSession = Depends(get_
 
 
 @router.get("/group/{group_id}/history.xlsx")
-async def export_history_xlsx(group_id: int, session: AsyncSession = Depends(get_session)):
+async def export_history_xlsx(
+    group_id: int,
+    session: AsyncSession = Depends(get_session),
+    identity: Identity = Depends(verify_bot_or_mini_app),
+):
     """Guruhning bajarish tarixini Excel (.xlsx) formatida eksport qiladi."""
+    await ensure_actor_can_access_group(identity, group_id, session)
     from openpyxl import Workbook
 
     stmt = (
@@ -76,7 +89,10 @@ async def export_history_xlsx(group_id: int, session: AsyncSession = Depends(get
         .join(Task, TaskAssignment.task_id == Task.id)
         .join(Member, TaskCompletion.member_id == Member.id)
         .join(User, Member.user_id == User.id)
-        .where(Task.group_id == group_id)
+        .where(
+            Task.group_id == group_id,
+            TaskCompletion.approval_status == CompletionApprovalStatus.APPROVED,
+        )
         .order_by(TaskCompletion.completed_at.desc())
     )
     result = await session.execute(stmt)
@@ -109,11 +125,17 @@ async def export_history_xlsx(group_id: int, session: AsyncSession = Depends(get
 
 
 @router.get("/search", response_model=ApiResponse)
-async def global_search(query: str, group_id: int, session: AsyncSession = Depends(get_session)):
+async def global_search(
+    query: str,
+    group_id: int,
+    session: AsyncSession = Depends(get_session),
+    identity: Identity = Depends(verify_bot_or_mini_app),
+):
     """
     Guruh doirasida vazifa nomi va a'zo ismi bo'yicha oddiy qidiruv
     (spec'dagi "Global Search" ning soddalashtirilgan MVP versiyasi).
     """
+    await ensure_actor_can_access_group(identity, group_id, session)
     like_pattern = f"%{query}%"
 
     task_stmt = select(Task).where(Task.group_id == group_id, Task.name.ilike(like_pattern))

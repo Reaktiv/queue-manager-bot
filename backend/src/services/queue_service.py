@@ -47,8 +47,8 @@ class QueueService:
         await self._queue_repo.rotate_queue(task_id)
         await self.lock_current_turn(task_id)
 
-    async def admin_swap(self, task_id: int, entry_id_a: int, entry_id_b: int) -> None:
-        await self._queue_repo.swap_members(task_id, entry_id_a, entry_id_b)
+    async def admin_swap(self, task_id: int, member_id_a: int, member_id_b: int) -> None:
+        await self._queue_repo.swap_members(task_id, member_id_a, member_id_b)
 
     async def preview_queue(self, task_id: int) -> list:
         """Joriy, keyingi va undan keyingi a'zolarni ko'rsatish uchun."""

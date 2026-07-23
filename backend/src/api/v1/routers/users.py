@@ -5,9 +5,10 @@ Bot shu endpointlarga murojaat qiladi.
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from ....api.auth_deps import verify_bot_or_mini_app
-from ....api.deps import get_user_service
+from ....api.auth_deps import Identity, ensure_actor_owns_telegram_id, verify_bot_or_mini_app
+from ....api.deps import get_session, get_user_service
 from ....services.user_service import UserService
 
 router = APIRouter(prefix="/users", tags=["Users"], dependencies=[Depends(verify_bot_or_mini_app)])
@@ -38,8 +39,12 @@ class ApiResponse(BaseModel):
 
 @router.post("/register", response_model=ApiResponse)
 async def register_user(
-    payload: RegisterUserRequest, service: UserService = Depends(get_user_service)
+    payload: RegisterUserRequest,
+    session: AsyncSession = Depends(get_session),
+    service: UserService = Depends(get_user_service),
+    identity: Identity = Depends(verify_bot_or_mini_app),
 ):
+    await ensure_actor_owns_telegram_id(identity, payload.telegram_id, session)
     user, is_new = await service.register_or_update(
         telegram_id=payload.telegram_id,
         full_name=payload.full_name,
@@ -54,7 +59,13 @@ async def register_user(
 
 
 @router.get("/{telegram_id}", response_model=ApiResponse)
-async def get_user(telegram_id: int, service: UserService = Depends(get_user_service)):
+async def get_user(
+    telegram_id: int,
+    session: AsyncSession = Depends(get_session),
+    service: UserService = Depends(get_user_service),
+    identity: Identity = Depends(verify_bot_or_mini_app),
+):
+    await ensure_actor_owns_telegram_id(identity, telegram_id, session)
     user = await service.get_by_telegram_id(telegram_id)
     if user is None:
         return ApiResponse(success=False, message="Foydalanuvchi topilmadi")

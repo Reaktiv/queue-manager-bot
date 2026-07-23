@@ -50,7 +50,7 @@ async def handle_join_command(message: Message, state: FSMContext) -> None:
 
 @router.message(JoinGroupStates.waiting_for_invite_code, F.text)
 async def handle_invite_code(message: Message, state: FSMContext, api_client: ApiClient) -> None:
-    invite_code = message.text.strip() if message.text else ""
+    invite_code = message.text.strip().upper() if message.text else ""
     user = message.from_user
     if user is None:
         return

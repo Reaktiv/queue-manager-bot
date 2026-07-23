@@ -54,6 +54,7 @@ async def handle_help(message: Message) -> None:
         "/newtask - yangi vazifa yaratish\n"
         "/tasks - vazifalar ro'yxati va boshqaruvi\n"
         "/members - a'zolar ro'yxati\n"
-        "<code>/vacation [member_id]</code> - dam olish rejimini yoqish/o'chirish\n\n"
+        "<code>/vacation [member_id]</code> - dam olish rejimini yoqish/o'chirish\n"
+        "<code>/setadmin [member_id]</code> - a'zoni admin qilish/tushirish\n\n"
         "/cancel - joriy amalni bekor qilish"
     )

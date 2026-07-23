@@ -67,6 +67,7 @@ def admin_task_menu_keyboard(task_id: int) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="👀 Navbat", callback_data=f"preview:{task_id}")],
             [InlineKeyboardButton(text="⏭ Skip", callback_data=f"admin_skip:{task_id}")],
             [InlineKeyboardButton(text="🔄 Swap", callback_data=f"admin_swap_start:{task_id}")],
+            [InlineKeyboardButton(text="⏰ Eslatma sozlamalari", callback_data=f"edit_reminder_start:{task_id}")],
         ]
     )
 
@@ -81,6 +82,23 @@ def yes_no_keyboard(prefix: str) -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(text="✅ Ha", callback_data=f"{prefix}:yes"),
                 InlineKeyboardButton(text="❌ Yo'q", callback_data=f"{prefix}:no"),
+            ]
+        ]
+    )
+
+
+def completion_vote_keyboard(
+    completion_id: int, yes_count: int = 0, no_count: int = 0
+) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=f"✅ Ha ({yes_count})", callback_data=f"vote_yes:{completion_id}"
+                ),
+                InlineKeyboardButton(
+                    text=f"❌ Yo'q ({no_count})", callback_data=f"vote_no:{completion_id}"
+                ),
             ]
         ]
     )

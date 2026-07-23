@@ -5,12 +5,21 @@ Presentation Layer: Guruh yaratish va qo'shilish endpointlari.
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from ....api.auth_deps import ensure_admin_for_group, verify_bot_or_mini_app
+from ....api.auth_deps import (
+    Identity,
+    ensure_actor_can_access_group,
+    ensure_actor_owns_telegram_id,
+    ensure_admin_for_group,
+    verify_bot_or_mini_app,
+)
 from ....api.deps import get_group_service, get_user_service, get_session
+from ....infrastructure.models.group import MemberRole
 from ....services.group_service import (
     AlreadyMemberError,
     GroupService,
     InvalidInviteCodeError,
+    LastAdminError,
+    MemberNotFoundError,
 )
 from ....services.user_service import UserService
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,6 +48,11 @@ class VacationRequest(BaseModel):
     is_on_vacation: bool
 
 
+class SetRoleRequest(BaseModel):
+    telegram_id: int
+    role: str = Field(pattern="^(admin|member)$")
+
+
 class JoinGroupRequest(BaseModel):
     telegram_id: int
     invite_code: str = Field(min_length=4, max_length=16)
@@ -47,9 +61,12 @@ class JoinGroupRequest(BaseModel):
 @router.get("/user/{telegram_id}", response_model=ApiResponse)
 async def list_my_groups(
     telegram_id: int,
+    session: AsyncSession = Depends(get_session),
     group_service: GroupService = Depends(get_group_service),
     user_service: UserService = Depends(get_user_service),
+    identity: Identity = Depends(verify_bot_or_mini_app),
 ):
+    await ensure_actor_owns_telegram_id(identity, telegram_id, session)
     user = await user_service.get_by_telegram_id(telegram_id)
     if user is None:
         return ApiResponse(success=False, message="Foydalanuvchi topilmadi")
@@ -69,7 +86,13 @@ async def list_my_groups(
 
 
 @router.get("/{group_id}/members", response_model=ApiResponse)
-async def list_members(group_id: int, group_service: GroupService = Depends(get_group_service)):
+async def list_members(
+    group_id: int,
+    session: AsyncSession = Depends(get_session),
+    group_service: GroupService = Depends(get_group_service),
+    identity: Identity = Depends(verify_bot_or_mini_app),
+):
+    await ensure_actor_can_access_group(identity, group_id, session)
     members = await group_service.list_members(group_id)
     data = [
         {
@@ -90,8 +113,10 @@ async def set_vacation(
     session: AsyncSession = Depends(get_session),
     group_service: GroupService = Depends(get_group_service),
     user_service: UserService = Depends(get_user_service),
+    identity: Identity = Depends(verify_bot_or_mini_app),
 ):
     """Admin biror a'zoni vaqtincha dam olish (vacation) rejimiga qo'yadi/qaytaradi."""
+    await ensure_actor_owns_telegram_id(identity, payload.telegram_id, session)
     user = await user_service.get_by_telegram_id(payload.telegram_id)
     if user is None:
         return ApiResponse(success=False, message="Avval /start orqali ro'yxatdan o'ting")
@@ -109,12 +134,56 @@ async def set_vacation(
     return ApiResponse(success=True, message=f"A'zo {status_text}")
 
 
+@router.patch("/{group_id}/members/{member_id}/role", response_model=ApiResponse)
+async def set_member_role(
+    group_id: int,
+    member_id: int,
+    payload: SetRoleRequest,
+    session: AsyncSession = Depends(get_session),
+    group_service: GroupService = Depends(get_group_service),
+    user_service: UserService = Depends(get_user_service),
+    identity: Identity = Depends(verify_bot_or_mini_app),
+):
+    """
+    A'zoni ADMIN yoki oddiy MEMBER qiladi. Faqat mavjud guruh adminlari
+    (guruh yaratuvchisi bilan cheklanmagan holda) bajara oladi - shu orqali
+    vazifa yaratish/tahrirlash huquqi faqat "guruh egasi"da emas, balki
+    barcha tayinlangan adminlarda bo'ladi.
+    """
+    await ensure_actor_owns_telegram_id(identity, payload.telegram_id, session)
+    user = await user_service.get_by_telegram_id(payload.telegram_id)
+    if user is None:
+        return ApiResponse(success=False, message="Foydalanuvchi topilmadi")
+
+    await ensure_admin_for_group(user.id, group_id, session)
+
+    role = MemberRole.ADMIN if payload.role == "admin" else MemberRole.MEMBER
+    try:
+        member = await group_service.set_member_role(group_id, member_id, role)
+    except MemberNotFoundError:
+        return ApiResponse(success=False, message="A'zo topilmadi")
+    except LastAdminError:
+        return ApiResponse(
+            success=False,
+            message="Guruhning yagona adminini oddiy a'zoga tushirib bo'lmaydi",
+        )
+
+    return ApiResponse(
+        success=True,
+        data={"member_id": member.id, "role": member.role.value},
+        message="A'zo yangilandi" if role == MemberRole.MEMBER else "A'zo admin qilindi",
+    )
+
+
 @router.post("/create", response_model=ApiResponse)
 async def create_group(
     payload: CreateGroupRequest,
+    session: AsyncSession = Depends(get_session),
     group_service: GroupService = Depends(get_group_service),
     user_service: UserService = Depends(get_user_service),
+    identity: Identity = Depends(verify_bot_or_mini_app),
 ):
+    await ensure_actor_owns_telegram_id(identity, payload.telegram_id, session)
     user = await user_service.get_by_telegram_id(payload.telegram_id)
     if user is None:
         return ApiResponse(success=False, message="Avval /start orqali ro'yxatdan o'ting")
@@ -140,9 +209,12 @@ async def create_group(
 @router.post("/join", response_model=ApiResponse)
 async def join_group(
     payload: JoinGroupRequest,
+    session: AsyncSession = Depends(get_session),
     group_service: GroupService = Depends(get_group_service),
     user_service: UserService = Depends(get_user_service),
+    identity: Identity = Depends(verify_bot_or_mini_app),
 ):
+    await ensure_actor_owns_telegram_id(identity, payload.telegram_id, session)
     user = await user_service.get_by_telegram_id(payload.telegram_id)
     if user is None:
         return ApiResponse(success=False, message="Avval /start orqali ro'yxatdan o'ting")
@@ -176,7 +248,9 @@ async def link_group_by_code(
     session: AsyncSession = Depends(get_session),
     group_service: GroupService = Depends(get_group_service),
     user_service: UserService = Depends(get_user_service),
+    identity: Identity = Depends(verify_bot_or_mini_app),
 ):
+    await ensure_actor_owns_telegram_id(identity, payload.telegram_id, session)
     user = await user_service.get_by_telegram_id(payload.telegram_id)
     if user is None:
         return ApiResponse(success=False, message="Foydalanuvchi topilmadi")
@@ -210,7 +284,9 @@ async def broadcast_message(
     session: AsyncSession = Depends(get_session),
     group_service: GroupService = Depends(get_group_service),
     user_service: UserService = Depends(get_user_service),
+    identity: Identity = Depends(verify_bot_or_mini_app),
 ):
+    await ensure_actor_owns_telegram_id(identity, payload.telegram_id, session)
     user = await user_service.get_by_telegram_id(payload.telegram_id)
     if user is None:
         return ApiResponse(success=False, message="Foydalanuvchi topilmadi")

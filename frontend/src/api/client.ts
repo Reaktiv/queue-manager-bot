@@ -1,6 +1,9 @@
 import type { ApiResponse } from "../types";
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || "https://acrobat-coordinator-tenant-shown.trycloudflare.com";
+// Bo'sh qiymat = joriy origin (frontend qaysi tunnel/domenda ochilgan bo'lsa,
+// so'rovlar ham o'sha yerga, /api orqali ketadi - dev serverdagi proxy yoki
+// productiondagi nginx uni backend'ga yo'naltiradi).
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 
 let accessToken: string | null = null;
 let refreshToken: string | null = null;
@@ -86,7 +89,8 @@ export const api = {
     schedule_type?: string;
     schedule_interval_days?: number | null;
     start_date?: string | null;
-    reminder_interval_minutes?: number;
+    reminder_interval_min_minutes?: number;
+    reminder_interval_max_minutes?: number;
     reminder_start_hour?: number;
     reminder_end_hour?: number;
   }) =>
@@ -116,6 +120,15 @@ export const api = {
         is_on_vacation: isOnVacation,
       }),
     }),
+
+  setMemberRole: (groupId: number, memberId: number, telegramId: number, role: "admin" | "member") =>
+    request<{ member_id: number; role: string }>(
+      `/api/v1/groups/${groupId}/members/${memberId}/role`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ telegram_id: telegramId, role }),
+      }
+    ),
 
   getMemberStatistics: (memberId: number) =>
     request<import("../types").MemberStatistics>(`/api/v1/statistics/member/${memberId}`),

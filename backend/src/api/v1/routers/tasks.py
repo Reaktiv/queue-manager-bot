@@ -5,7 +5,7 @@ Presentation Layer: Task, Queue va admin amallari uchun endpointlar.
 from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 
 from ....api.deps import (
     get_group_service,
@@ -14,7 +14,13 @@ from ....api.deps import (
     get_task_service,
     get_user_service,
 )
-from ....api.auth_deps import ensure_admin_for_group, verify_bot_or_mini_app
+from ....api.auth_deps import (
+    Identity,
+    ensure_actor_can_access_group,
+    ensure_actor_owns_telegram_id,
+    ensure_admin_for_group,
+    verify_bot_or_mini_app,
+)
 from ....services.group_service import GroupService
 from ....services.queue_service import QueueService
 from ....services.task_service import TaskService
@@ -87,25 +93,55 @@ class CreateTaskRequest(BaseModel):
     group_id: int
     name: str
     description: str | None = None
-    schedule_interval_days: int = 1
-    reminder_interval_minutes: int = 60
-    reminder_start_hour: int = 8
-    reminder_end_hour: int = 22
+    schedule_interval_days: int = Field(default=1, gt=0)
+    reminder_interval_min_minutes: int = Field(default=60, gt=0)
+    reminder_interval_max_minutes: int = Field(default=60, gt=0)
+    reminder_start_hour: int = Field(default=8, ge=0, le=23)
+    reminder_end_hour: int = Field(default=22, ge=0, le=23)
     require_photo: bool = True
     priority: int = 0
     start_date: str | None = None
+
+    @model_validator(mode="after")
+    def _check_reminder_window(self) -> "CreateTaskRequest":
+        if self.reminder_start_hour >= self.reminder_end_hour:
+            raise ValueError("reminder_start_hour reminder_end_hour'dan kichik bo'lishi kerak")
+        if self.reminder_interval_min_minutes > self.reminder_interval_max_minutes:
+            raise ValueError(
+                "reminder_interval_min_minutes reminder_interval_max_minutes'dan katta bo'lmasligi kerak"
+            )
+        return self
 
 
 class UpdateTaskRequest(BaseModel):
     telegram_id: int
     name: str | None = None
     description: str | None = None
-    reminder_interval_minutes: int | None = None
-    reminder_start_hour: int | None = None
-    reminder_end_hour: int | None = None
+    reminder_interval_min_minutes: int | None = Field(default=None, gt=0)
+    reminder_interval_max_minutes: int | None = Field(default=None, gt=0)
+    reminder_start_hour: int | None = Field(default=None, ge=0, le=23)
+    reminder_end_hour: int | None = Field(default=None, ge=0, le=23)
     require_photo: bool | None = None
     priority: int | None = None
     is_active: bool | None = None
+
+    @model_validator(mode="after")
+    def _check_reminder_window(self) -> "UpdateTaskRequest":
+        if (
+            self.reminder_start_hour is not None
+            and self.reminder_end_hour is not None
+            and self.reminder_start_hour >= self.reminder_end_hour
+        ):
+            raise ValueError("reminder_start_hour reminder_end_hour'dan kichik bo'lishi kerak")
+        if (
+            self.reminder_interval_min_minutes is not None
+            and self.reminder_interval_max_minutes is not None
+            and self.reminder_interval_min_minutes > self.reminder_interval_max_minutes
+        ):
+            raise ValueError(
+                "reminder_interval_min_minutes reminder_interval_max_minutes'dan katta bo'lmasligi kerak"
+            )
+        return self
 
 
 class AdminActionRequest(BaseModel):
@@ -114,8 +150,8 @@ class AdminActionRequest(BaseModel):
 
 class SwapRequest(BaseModel):
     telegram_id: int
-    entry_id_a: int
-    entry_id_b: int
+    member_id_a: int
+    member_id_b: int
 
 
 async def _resolve_user_id(user_service: UserService, telegram_id: int) -> int | None:
@@ -130,7 +166,9 @@ async def create_task(
     task_service: TaskService = Depends(get_task_service),
     user_service: UserService = Depends(get_user_service),
     group_service: GroupService = Depends(get_group_service),
+    identity: Identity = Depends(verify_bot_or_mini_app),
 ):
+    await ensure_actor_owns_telegram_id(identity, payload.telegram_id, session)
     user_id = await _resolve_user_id(user_service, payload.telegram_id)
     if user_id is None:
         return ApiResponse(success=False, message="Avval /start orqali ro'yxatdan o'ting")
@@ -154,7 +192,8 @@ async def create_task(
         created_by_user_id=user_id,
         description=payload.description,
         schedule_interval_days=payload.schedule_interval_days,
-        reminder_interval_minutes=payload.reminder_interval_minutes,
+        reminder_interval_min_minutes=payload.reminder_interval_min_minutes,
+        reminder_interval_max_minutes=payload.reminder_interval_max_minutes,
         reminder_start_hour=payload.reminder_start_hour,
         reminder_end_hour=payload.reminder_end_hour,
         require_photo=payload.require_photo,
@@ -174,10 +213,13 @@ async def list_group_tasks(
     session: AsyncSession = Depends(get_session),
     task_service: TaskService = Depends(get_task_service),
     group_service: GroupService = Depends(get_group_service),
+    identity: Identity = Depends(verify_bot_or_mini_app),
 ):
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
     from ....infrastructure.models.group import Member
+
+    await ensure_actor_can_access_group(identity, group_id, session)
 
     tasks = await task_service.list_group_tasks(group_id)
     group = await group_service._repo.get_by_id(group_id)
@@ -208,6 +250,10 @@ async def list_group_tasks(
                 if (t.next_execution_date or t.start_date)
                 else None
             ),
+            "reminder_interval_min_minutes": t.reminder_interval_min_minutes,
+            "reminder_interval_max_minutes": t.reminder_interval_max_minutes,
+            "reminder_start_hour": t.reminder_start_hour,
+            "reminder_end_hour": t.reminder_end_hour,
         })
     return ApiResponse(success=True, data=data)
 
@@ -219,17 +265,24 @@ async def update_task(
     session: AsyncSession = Depends(get_session),
     task_service: TaskService = Depends(get_task_service),
     user_service: UserService = Depends(get_user_service),
+    identity: Identity = Depends(verify_bot_or_mini_app),
 ):
+    await ensure_actor_owns_telegram_id(identity, payload.telegram_id, session)
     user_id = await _resolve_user_id(user_service, payload.telegram_id)
     if user_id is None:
         return ApiResponse(success=False, message="Foydalanuvchi topilmadi")
+
+    existing_task = await task_service.get_task(task_id)
+    if existing_task is None:
+        return ApiResponse(success=False, message="Vazifa topilmadi")
+
+    await ensure_admin_for_group(user_id, existing_task.group_id, session)
 
     fields = payload.model_dump(exclude={"telegram_id"})
     task = await task_service.update_task(task_id, user_id, **fields)
     if task is None:
         return ApiResponse(success=False, message="Vazifa topilmadi")
 
-    await ensure_admin_for_group(user_id, task.group_id, session)
     return ApiResponse(success=True, message="Vazifa yangilandi")
 
 
@@ -240,7 +293,9 @@ async def delete_task(
     session: AsyncSession = Depends(get_session),
     task_service: TaskService = Depends(get_task_service),
     user_service: UserService = Depends(get_user_service),
+    identity: Identity = Depends(verify_bot_or_mini_app),
 ):
+    await ensure_actor_owns_telegram_id(identity, payload.telegram_id, session)
     user_id = await _resolve_user_id(user_service, payload.telegram_id)
     if user_id is None:
         return ApiResponse(success=False, message="Foydalanuvchi topilmadi")
@@ -258,12 +313,18 @@ async def delete_task(
 @router.get("/{task_id}/queue/preview", response_model=ApiResponse)
 async def preview_queue(
     task_id: int,
+    session: AsyncSession = Depends(get_session),
     service: QueueService = Depends(get_queue_service),
     task_service: TaskService = Depends(get_task_service),
     group_service: GroupService = Depends(get_group_service),
+    identity: Identity = Depends(verify_bot_or_mini_app),
 ):
-    entries = await service.preview_queue(task_id)
     task = await task_service.get_task(task_id)
+    if task is None:
+        return ApiResponse(success=False, message="Vazifa topilmadi")
+    await ensure_actor_can_access_group(identity, task.group_id, session)
+
+    entries = await service.preview_queue(task_id)
     group = await group_service._repo.get_by_id(task.group_id) if task else None
     timezone_str = group.timezone if group else "Asia/Tashkent"
     return ApiResponse(success=True, data=_entries_to_data(entries, task, timezone_str))
@@ -276,7 +337,9 @@ async def skip_current(
     session: AsyncSession = Depends(get_session),
     task_service: TaskService = Depends(get_task_service),
     user_service: UserService = Depends(get_user_service),
+    identity: Identity = Depends(verify_bot_or_mini_app),
 ):
+    await ensure_actor_owns_telegram_id(identity, payload.telegram_id, session)
     user_id = await _resolve_user_id(user_service, payload.telegram_id)
     if user_id is None:
         return ApiResponse(success=False, message="Foydalanuvchi topilmadi")
@@ -298,7 +361,9 @@ async def swap_members(
     session: AsyncSession = Depends(get_session),
     task_service: TaskService = Depends(get_task_service),
     user_service: UserService = Depends(get_user_service),
+    identity: Identity = Depends(verify_bot_or_mini_app),
 ):
+    await ensure_actor_owns_telegram_id(identity, payload.telegram_id, session)
     user_id = await _resolve_user_id(user_service, payload.telegram_id)
     if user_id is None:
         return ApiResponse(success=False, message="Foydalanuvchi topilmadi")
@@ -309,7 +374,7 @@ async def swap_members(
 
     await ensure_admin_for_group(user_id, task.group_id, session)
 
-    await task_service.admin_swap(task_id, user_id, payload.entry_id_a, payload.entry_id_b)
+    await task_service.admin_swap(task_id, user_id, payload.member_id_a, payload.member_id_b)
     return ApiResponse(success=True, message="A'zolar navbatda almashtirildi")
 
 
@@ -321,12 +386,14 @@ async def get_my_tasks(
     task_service: TaskService = Depends(get_task_service),
     user_service: UserService = Depends(get_user_service),
     group_service: GroupService = Depends(get_group_service),
+    identity: Identity = Depends(verify_bot_or_mini_app),
 ):
     """Berilgan guruhda shu foydalanuvchi hozir navbatda turgan vazifalar."""
     from sqlalchemy import select
     from ....infrastructure.models.task import TaskAssignment, TaskStatus
     from ....utils.datetime_utils import local_date_to_utc_start
 
+    await ensure_actor_owns_telegram_id(identity, telegram_id, session)
     user = await user_service.get_by_telegram_id(telegram_id)
     if user is None:
         return ApiResponse(success=False, message="Foydalanuvchi topilmadi")

@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..infrastructure.db.session import get_db_session
 from ..repositories.assignment_repository import AssignmentRepository
 from ..repositories.audit_repository import AuditRepository
+from ..repositories.completion_vote_repository import CompletionVoteRepository
 from ..repositories.group_repository import GroupRepository
 from ..repositories.notification_repository import NotificationTemplateRepository
 from ..repositories.penalty_repository import PenaltyRepository
@@ -88,6 +89,8 @@ def get_completion_service(
         task_service=task_service,
         photo_storage=get_photo_storage_service(),
         notification_service=notification_service,
+        user_repository=UserRepository(session),
+        vote_repository=CompletionVoteRepository(session),
     )
 
 

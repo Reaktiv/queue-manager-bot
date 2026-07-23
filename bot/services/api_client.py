@@ -142,15 +142,15 @@ class ApiClient:
             return {"success": False, "message": str(e)}
 
     async def swap_queue(
-        self, telegram_id: int, task_id: int, entry_id_a: int, entry_id_b: int
+        self, telegram_id: int, task_id: int, member_id_a: int, member_id_b: int
     ) -> dict:
         try:
             response = await self._client.post(
                 f"/api/v1/tasks/{task_id}/queue/swap",
                 json={
                     "telegram_id": telegram_id,
-                    "entry_id_a": entry_id_a,
-                    "entry_id_b": entry_id_b,
+                    "member_id_a": member_id_a,
+                    "member_id_b": member_id_b,
                 },
             )
             return response.json()
@@ -165,7 +165,10 @@ class ApiClient:
         name: str,
         description: str | None = None,
         schedule_type: str = "daily",
-        reminder_interval_minutes: int = 60,
+        reminder_interval_min_minutes: int = 60,
+        reminder_interval_max_minutes: int = 60,
+        reminder_start_hour: int = 8,
+        reminder_end_hour: int = 22,
         require_photo: bool = True,
         schedule_interval_days: int | None = None,
         start_date: str | None = None,
@@ -179,7 +182,10 @@ class ApiClient:
                     "name": name,
                     "description": description,
                     "schedule_type": schedule_type,
-                    "reminder_interval_minutes": reminder_interval_minutes,
+                    "reminder_interval_min_minutes": reminder_interval_min_minutes,
+                    "reminder_interval_max_minutes": reminder_interval_max_minutes,
+                    "reminder_start_hour": reminder_start_hour,
+                    "reminder_end_hour": reminder_end_hour,
                     "require_photo": require_photo,
                     "schedule_interval_days": schedule_interval_days,
                     "start_date": start_date,
@@ -189,6 +195,34 @@ class ApiClient:
             return response.json()
         except Exception as e:
             logger.error("Create task request failed", error=str(e))
+            return {"success": False, "message": str(e)}
+
+    async def update_task(
+        self,
+        telegram_id: int,
+        task_id: int,
+        reminder_interval_min_minutes: int | None = None,
+        reminder_interval_max_minutes: int | None = None,
+        reminder_start_hour: int | None = None,
+        reminder_end_hour: int | None = None,
+    ) -> dict:
+        try:
+            body: dict = {"telegram_id": telegram_id}
+            if reminder_interval_min_minutes is not None:
+                body["reminder_interval_min_minutes"] = reminder_interval_min_minutes
+            if reminder_interval_max_minutes is not None:
+                body["reminder_interval_max_minutes"] = reminder_interval_max_minutes
+            if reminder_start_hour is not None:
+                body["reminder_start_hour"] = reminder_start_hour
+            if reminder_end_hour is not None:
+                body["reminder_end_hour"] = reminder_end_hour
+
+            response = await self._client.request(
+                "PATCH", f"/api/v1/tasks/{task_id}", json=body
+            )
+            return response.json()
+        except Exception as e:
+            logger.error("Update task request failed", error=str(e))
             return {"success": False, "message": str(e)}
 
     async def set_vacation(self, telegram_id: int, member_id: int, is_on_vacation: bool) -> dict:
@@ -204,6 +238,18 @@ class ApiClient:
             return response.json()
         except Exception as e:
             logger.error("Set vacation request failed", error=str(e))
+            return {"success": False, "message": str(e)}
+
+    async def set_member_role(self, telegram_id: int, group_id: int, member_id: int, role: str) -> dict:
+        try:
+            response = await self._client.request(
+                "PATCH",
+                f"/api/v1/groups/{group_id}/members/{member_id}/role",
+                json={"telegram_id": telegram_id, "role": role},
+            )
+            return response.json()
+        except Exception as e:
+            logger.error("Set member role request failed", error=str(e))
             return {"success": False, "message": str(e)}
 
     async def get_member_statistics(self, member_id: int) -> dict:
@@ -246,6 +292,17 @@ class ApiClient:
             return response.json()
         except Exception as e:
             logger.error("Complete task with photo request failed", error=str(e))
+            return {"success": False, "message": str(e)}
+
+    async def vote_completion(self, telegram_id: int, completion_id: int, approve: bool) -> dict:
+        try:
+            response = await self._client.post(
+                f"/api/v1/completion/{completion_id}/vote",
+                json={"telegram_id": telegram_id, "approve": approve},
+            )
+            return response.json()
+        except Exception as e:
+            logger.error("Vote completion request failed", error=str(e))
             return {"success": False, "message": str(e)}
 
     async def close(self) -> None:

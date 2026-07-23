@@ -11,9 +11,9 @@ function formatDateInputValue(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
-function formatTodayForTimezone() {
+function formatTodayForTimezone(timeZone: string = "Asia/Tashkent") {
   const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Tashkent",
+    timeZone,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -53,8 +53,9 @@ export function AdminDashboard({ user, group }: Props) {
   const [newTaskName, setNewTaskName] = useState("");
   const [creating, setCreating] = useState(false);
   const [scheduleIntervalDays, setScheduleIntervalDays] = useState(1);
-  const [startDate, setStartDate] = useState(() => formatTodayForTimezone());
-  const [reminderInterval, setReminderInterval] = useState(60);
+  const [startDate, setStartDate] = useState(() => formatTodayForTimezone(group.timezone));
+  const [reminderIntervalMin, setReminderIntervalMin] = useState(60);
+  const [reminderIntervalMax, setReminderIntervalMax] = useState(60);
   const [reminderStartHour, setReminderStartHour] = useState(8);
   const [reminderEndHour, setReminderEndHour] = useState(22);
   const [broadcastMsg, setBroadcastMsg] = useState("");
@@ -66,7 +67,7 @@ export function AdminDashboard({ user, group }: Props) {
   useEffect(() => {
     loadTasks();
     loadMembers();
-    setStartDate(formatTodayForTimezone());
+    setStartDate(formatTodayForTimezone(group.timezone));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [group.id]);
 
@@ -79,23 +80,29 @@ export function AdminDashboard({ user, group }: Props) {
   async function handleCreateTask() {
     if (!newTaskName.trim()) return;
     setCreating(true);
-    await api.createTask({
+    const res = await api.createTask({
       telegram_id: user.telegram_id,
       group_id: group.id,
       name: newTaskName.trim(),
       require_photo: true,
       schedule_interval_days: Number(scheduleIntervalDays) || 1,
       start_date: startDate,
-      reminder_interval_minutes: Number(reminderInterval) || 60,
-      reminder_start_hour: Number(reminderStartHour) ?? 8,
-      reminder_end_hour: Number(reminderEndHour) ?? 22,
+      reminder_interval_min_minutes: Number(reminderIntervalMin) || 60,
+      reminder_interval_max_minutes: Number(reminderIntervalMax) || 60,
+      reminder_start_hour: Number(reminderStartHour) || 8,
+      reminder_end_hour: Number(reminderEndHour) || 22,
     });
+    setCreating(false);
+    if (!res.success) {
+      alert(`Xatolik: ${res.message}`);
+      return;
+    }
     setNewTaskName("");
     setScheduleIntervalDays(1);
-    setReminderInterval(60);
+    setReminderIntervalMin(60);
+    setReminderIntervalMax(60);
     setReminderStartHour(8);
     setReminderEndHour(22);
-    setCreating(false);
     loadTasks();
   }
 
@@ -121,18 +128,40 @@ export function AdminDashboard({ user, group }: Props) {
   }
 
   async function handleDeleteTask(taskId: number) {
-    await api.deleteTask(taskId, user.telegram_id);
+    const res = await api.deleteTask(taskId, user.telegram_id);
+    if (!res.success) {
+      alert(`Xatolik: ${res.message}`);
+      return;
+    }
     setSelectedTask(null);
     loadTasks();
   }
 
   async function handleSkip(taskId: number) {
-    await api.skipQueue(taskId, user.telegram_id);
+    const res = await api.skipQueue(taskId, user.telegram_id);
+    if (!res.success) {
+      alert(`Xatolik: ${res.message}`);
+      return;
+    }
     api.getQueuePreview(taskId).then((res) => setQueue(res.data || []));
   }
 
   async function toggleVacation(member: MemberSummary) {
-    await api.setVacation(user.telegram_id, member.member_id, !member.is_on_vacation);
+    const res = await api.setVacation(user.telegram_id, member.member_id, !member.is_on_vacation);
+    if (!res.success) {
+      alert(`Xatolik: ${res.message}`);
+      return;
+    }
+    loadMembers();
+  }
+
+  async function toggleAdmin(member: MemberSummary) {
+    const newRole = member.role === "admin" ? "member" : "admin";
+    const res = await api.setMemberRole(group.id, member.member_id, user.telegram_id, newRole);
+    if (!res.success) {
+      alert(`Xatolik: ${res.message}`);
+      return;
+    }
     loadMembers();
   }
 
@@ -187,17 +216,29 @@ export function AdminDashboard({ user, group }: Props) {
 
           <div className="border-t border-tg-hint/15 pt-2 space-y-2">
             <h4 className="text-xs font-semibold text-tg-hint">🔔 Eslatma sozlamalari</h4>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="text-xs text-tg-hint block mb-1">Daqiqada (interval)</label>
+                <label className="text-xs text-tg-hint block mb-1">Daqiqada (min)</label>
                 <input
                   type="number"
                   min="1"
                   className="w-full rounded-lg border border-tg-hint/30 bg-transparent px-3 py-2 text-sm text-tg-text"
-                  value={reminderInterval}
-                  onChange={(e) => setReminderInterval(Number(e.target.value) || 60)}
+                  value={reminderIntervalMin}
+                  onChange={(e) => setReminderIntervalMin(Number(e.target.value) || 60)}
                 />
               </div>
+              <div>
+                <label className="text-xs text-tg-hint block mb-1">Daqiqada (max)</label>
+                <input
+                  type="number"
+                  min="1"
+                  className="w-full rounded-lg border border-tg-hint/30 bg-transparent px-3 py-2 text-sm text-tg-text"
+                  value={reminderIntervalMax}
+                  onChange={(e) => setReminderIntervalMax(Number(e.target.value) || 60)}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="text-xs text-tg-hint block mb-1">Boshlash (soat)</label>
                 <input
@@ -206,7 +247,7 @@ export function AdminDashboard({ user, group }: Props) {
                   max="23"
                   className="w-full rounded-lg border border-tg-hint/30 bg-transparent px-3 py-2 text-sm text-tg-text"
                   value={reminderStartHour}
-                  onChange={(e) => setReminderStartHour(Number(e.target.value) ?? 8)}
+                  onChange={(e) => setReminderStartHour(Number(e.target.value) || 8)}
                 />
               </div>
               <div>
@@ -217,7 +258,7 @@ export function AdminDashboard({ user, group }: Props) {
                   max="23"
                   className="w-full rounded-lg border border-tg-hint/30 bg-transparent px-3 py-2 text-sm text-tg-text"
                   value={reminderEndHour}
-                  onChange={(e) => setReminderEndHour(Number(e.target.value) ?? 22)}
+                  onChange={(e) => setReminderEndHour(Number(e.target.value) || 22)}
                 />
               </div>
             </div>
@@ -305,12 +346,20 @@ export function AdminDashboard({ user, group }: Props) {
                 </p>
                 {member.is_on_vacation && <Badge tone="warning">🏖 Dam olishda</Badge>}
               </div>
-              <button
-                className="text-xs text-tg-link underline"
-                onClick={() => toggleVacation(member)}
-              >
-                {member.is_on_vacation ? "Qaytarish" : "Dam olish"}
-              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  className="text-xs text-tg-link underline"
+                  onClick={() => toggleAdmin(member)}
+                >
+                  {member.role === "admin" ? "Admindan tushirish" : "Admin qilish"}
+                </button>
+                <button
+                  className="text-xs text-tg-link underline"
+                  onClick={() => toggleVacation(member)}
+                >
+                  {member.is_on_vacation ? "Qaytarish" : "Dam olish"}
+                </button>
+              </div>
             </Card>
           ))}
         </div>
