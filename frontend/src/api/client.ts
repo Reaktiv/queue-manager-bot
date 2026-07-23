@@ -3,7 +3,7 @@ import type { ApiResponse } from "../types";
 // Bo'sh qiymat = joriy origin (frontend qaysi tunnel/domenda ochilgan bo'lsa,
 // so'rovlar ham o'sha yerga, /api orqali ketadi - dev serverdagi proxy yoki
 // productiondagi nginx uni backend'ga yo'naltiradi).
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || "https://tied-shades-continuously-travels.trycloudflare.com";
 
 let accessToken: string | null = null;
 let refreshToken: string | null = null;
