@@ -1,12 +1,32 @@
+# --- Maxfiy sozlamalar ---
+# Naqshlar ataylab keng: `.env` va `**/.env` istalgan chuqurlikdagi faylni,
+# `.env.*` / `**/.env.*` esa variantlarni (.env.local, .env.production)
+# qamrab oladi. Namuna fayl kerak bo'lsa uni `.env.example` emas,
+# `env.example` deb nomlang - aks holda u ham e'tiborsiz qolib ketadi.
 .env
-.idea/
+**/.env
+.env.*
+**/.env.*
+docker-compose.override.yml
+
+# --- Python ---
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
 *.egg-info/
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
 venv/
+.venv/
+
+# --- Node ---
 node_modules/
 frontend/dist/
+frontend/tsconfig.tsbuildinfo
+
+# --- IDE ---
+.idea/
+.vscode/
+
+# --- Ma'lumotlar ---
 storage/photos/

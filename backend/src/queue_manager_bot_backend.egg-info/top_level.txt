@@ -1,9 +1,0 @@
-__init__
-api
-core
-infrastructure
-main
-repositories
-scheduler
-services
-utils
