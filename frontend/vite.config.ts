@@ -1,10 +1,17 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
+// `@types/node` o'rnatilmagan, shuning uchun faqat kerakli qismini e'lon qilamiz.
+declare const process: { env: Record<string, string | undefined> };
+
+const BACKEND_PORT = process.env.BACKEND_PORT ?? "8005";
+const FRONTEND_PORT = Number(process.env.PORT ?? 5175);
+
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 3000,
+    port: FRONTEND_PORT,
+    strictPort: true,
     host: true,
     // Tunnel xizmatlari (Cloudflare, Ngrok) ishlashi uchun barcha hostlarga ruxsat beramiz
     allowedHosts: true,
@@ -15,7 +22,7 @@ export default defineConfig({
     // .env'ni qayta sozlash shart bo'lmaydi.
     proxy: {
       "/api": {
-        target: "http://localhost:8000",
+        target: `http://localhost:${BACKEND_PORT}`,
         changeOrigin: true,
       },
     },

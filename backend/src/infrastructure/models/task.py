@@ -158,6 +158,32 @@ class CompletionVote(Base):
     completion: Mapped["TaskCompletion"] = relationship(back_populates="votes")
 
 
+class CompletionRating(Base):
+    """
+    Guruh a'zosining bitta bajarilgan (tasdiqlangan) vazifaga bergan
+    sifat bahosi - 1 dan 5 yulduzgacha.
+
+    `CompletionVote`dan farqi: vote "bu haqiqatan bajarildimi?" degan
+    savolga javob beradi (tasdiqlash/rad etish), rating esa "qanday
+    bajarildi?" degan savolga (sifat/tezlik). Ikkalasi mustaqil -
+    rad etilgan (rejected) topshiriqqa baho berilmaydi, faqat
+    tasdiqlanganiga.
+    """
+
+    __tablename__ = "completion_ratings"
+    __table_args__ = (
+        UniqueConstraint(
+            "completion_id", "rater_member_id", name="ux_completion_ratings_completion_rater"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    completion_id: Mapped[int] = mapped_column(ForeignKey("task_completion.id"), nullable=False)
+    rater_member_id: Mapped[int] = mapped_column(ForeignKey("members.id"), nullable=False)
+    stars: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Penalty(Base):
     __tablename__ = "penalties"
 

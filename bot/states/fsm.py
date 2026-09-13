@@ -31,9 +31,10 @@ class CompletionStates(StatesGroup):
     waiting_for_photo = State()
 
 
-class SwapStates(StatesGroup):
-    waiting_for_first_member = State()
-    waiting_for_second_member = State()
+class ReorderStates(StatesGroup):
+    """Admin butun navbat tartibini a'zolarni birma-bir tanlab qayta
+    belgilaydi - oxirgi a'zo tanlangunga qadar shu holatda qoladi."""
+    waiting_for_next_member = State()
 
 
 class EditReminderStates(StatesGroup):

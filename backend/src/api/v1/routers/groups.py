@@ -16,6 +16,7 @@ from ....api.deps import get_group_service, get_user_service, get_session
 from ....infrastructure.models.group import MemberRole
 from ....services.group_service import (
     AlreadyMemberError,
+    DuplicateGroupChatIdError,
     GroupService,
     InvalidInviteCodeError,
     LastAdminError,
@@ -188,12 +189,18 @@ async def create_group(
     if user is None:
         return ApiResponse(success=False, message="Avval /start orqali ro'yxatdan o'ting")
 
-    group = await group_service.create_group(
-        name=payload.name,
-        created_by_user_id=user.id,
-        timezone=payload.timezone,
-        telegram_chat_id=payload.telegram_chat_id,
-    )
+    try:
+        group = await group_service.create_group(
+            name=payload.name,
+            created_by_user_id=user.id,
+            timezone=payload.timezone,
+            telegram_chat_id=payload.telegram_chat_id,
+        )
+    except DuplicateGroupChatIdError:
+        return ApiResponse(
+            success=False,
+            message="Bu Telegram group ID allaqachon boshqa guruhga bog'langan",
+        )
     return ApiResponse(
         success=True,
         data={
@@ -262,7 +269,13 @@ async def link_group_by_code(
     # Verify admin status
     await ensure_admin_for_group(user.id, group.id, session)
 
-    group.telegram_chat_id = payload.telegram_chat_id
+    try:
+        await group_service.set_telegram_chat_id(group.id, payload.telegram_chat_id)
+    except DuplicateGroupChatIdError:
+        return ApiResponse(
+            success=False,
+            message="Bu Telegram group ID allaqachon boshqa guruhga bog'langan",
+        )
     await session.commit()
 
     return ApiResponse(

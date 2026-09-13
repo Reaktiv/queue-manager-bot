@@ -8,14 +8,22 @@ logger = structlog.get_logger()
 class ApiClient:
     def __init__(self, base_url: str):
         self.base_url = base_url
-        self.secret = os.getenv("BOT_INTERNAL_SECRET", "my_super_secret_key_123")
+        self.secret = os.getenv("BOT_INTERNAL_SECRET", "")
+        if not self.secret:
+            raise RuntimeError(
+                "BOT_INTERNAL_SECRET o'rnatilmagan - backend bot so'rovlarini "
+                "rad etadi. .env faylida backend bilan bir xil qiymatni bering."
+            )
 
+        # Ilgari bu yerda `Authorization: Bearer <secret>` ham yuborilardi.
+        # Backend Bearer'ni JWT deb o'qiydi, ya'ni secret hech qachon token
+        # sifatida ishlamagan - faqat har bir so'rovda ortiqcha joyga
+        # (log'lar, proxy'lar) tarqalib yurgan.
         self._client = httpx.AsyncClient(
             base_url=self.base_url,
             headers={
                 "X-Bot-Secret": self.secret,
                 "X-Internal-Secret": self.secret,
-                "Authorization": f"Bearer {self.secret}",
             },
             timeout=10.0,
         )
@@ -141,21 +149,23 @@ class ApiClient:
             logger.error("List members request failed", error=str(e))
             return {"success": False, "message": str(e)}
 
-    async def swap_queue(
-        self, telegram_id: int, task_id: int, member_id_a: int, member_id_b: int
-    ) -> dict:
+    async def get_full_queue(self, task_id: int) -> dict:
+        try:
+            response = await self._client.get(f"/api/v1/tasks/{task_id}/queue/full")
+            return response.json()
+        except Exception as e:
+            logger.error("Get full queue request failed", error=str(e))
+            return {"success": False, "message": str(e)}
+
+    async def reorder_queue(self, telegram_id: int, task_id: int, member_ids: list[int]) -> dict:
         try:
             response = await self._client.post(
-                f"/api/v1/tasks/{task_id}/queue/swap",
-                json={
-                    "telegram_id": telegram_id,
-                    "member_id_a": member_id_a,
-                    "member_id_b": member_id_b,
-                },
+                f"/api/v1/tasks/{task_id}/queue/reorder",
+                json={"telegram_id": telegram_id, "member_ids": member_ids},
             )
             return response.json()
         except Exception as e:
-            logger.error("Swap queue request failed", error=str(e))
+            logger.error("Reorder queue request failed", error=str(e))
             return {"success": False, "message": str(e)}
 
     async def create_task(
@@ -303,6 +313,17 @@ class ApiClient:
             return response.json()
         except Exception as e:
             logger.error("Vote completion request failed", error=str(e))
+            return {"success": False, "message": str(e)}
+
+    async def rate_completion(self, telegram_id: int, completion_id: int, stars: int) -> dict:
+        try:
+            response = await self._client.post(
+                f"/api/v1/completion/{completion_id}/rate",
+                json={"telegram_id": telegram_id, "stars": stars},
+            )
+            return response.json()
+        except Exception as e:
+            logger.error("Rate completion request failed", error=str(e))
             return {"success": False, "message": str(e)}
 
     async def close(self) -> None:

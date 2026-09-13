@@ -9,8 +9,8 @@ import structlog
 from aiogram import F, Router
 from aiogram.types import CallbackQuery
 
-from bot.keyboards.inline import completion_vote_keyboard
-from bot.services.api_client import ApiClient
+from keyboards.inline import completion_vote_keyboard, star_rating_keyboard
+from services.api_client import ApiClient
 
 router = Router(name="approvals")
 logger = structlog.get_logger()
@@ -57,7 +57,9 @@ async def handle_vote(callback: CallbackQuery, api_client: ApiClient) -> None:
     if status == "approved":
         result_text = (
             f"✅ <b>Tasdiqlandi!</b> {assignee_name} \"{task_name}\" vazifasini bajardi deb "
-            f"topildi. Navbat keyingi a'zoga o'tdi."
+            f"topildi. Navbat keyingi a'zoga o'tdi.\n\n"
+            f"⭐ Sifat bahosi uchun 1 soat vaqtingiz bor - shu vaqtdan keyin pastdagi tugmalar "
+            f"endi baho qabul qilmaydi."
         )
         private_text = f"✅ Sizning \"{task_name}\" vazifangiz guruh tomonidan tasdiqlandi!"
     else:
@@ -70,11 +72,15 @@ async def handle_vote(callback: CallbackQuery, api_client: ApiClient) -> None:
             f"vazifani qayta bajaring va rasm yuboring."
         )
 
+    # Tasdiqlangan bo'lsa - ✅/❌ tugmalari 1-5 yulduz tugmalariga almashadi
+    # (guruhdoshlar sifat bahosi berishi uchun), rad etilganda esa tugmalar
+    # butunlay olib tashlanadi (bahoga hojat yo'q).
+    new_markup = star_rating_keyboard(completion_id) if status == "approved" else None
     try:
-        await callback.message.edit_caption(caption=result_text, reply_markup=None)
+        await callback.message.edit_caption(caption=result_text, reply_markup=new_markup)
     except Exception:
         try:
-            await callback.message.edit_reply_markup(reply_markup=None)
+            await callback.message.edit_reply_markup(reply_markup=new_markup)
         except Exception:
             pass
 

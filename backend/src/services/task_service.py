@@ -319,6 +319,37 @@ class TaskService:
             details={"operation": "swap", "member_a": member_id_a, "member_b": member_id_b},
         )
 
+    async def admin_reorder(
+        self, task_id: int, admin_user_id: int, member_ids_in_order: list[int]
+    ) -> None:
+        """Admin butun navbat tartibini birma-bir tanlangan a'zolar ro'yxati
+        bo'yicha qayta belgilaydi. Yangi boshdagi a'zo uchun bugungi
+        assignment darhol yaratiladi - xuddi `admin_skip` dagi kabi - shu
+        orqali navbat qulfi (queue lock) yangi egasiga to'g'ri o'tadi."""
+        await self._queue_service.admin_reorder(task_id, member_ids_in_order)
+
+        task = await self._task_repo.get_by_id(task_id)
+        if self._assignment_repo and task:
+            new_current = await self._queue_repo.get_current_entry(task_id)
+            if new_current:
+                group = await self._group_repo.get_by_id(task.group_id)
+                timezone_str = group.timezone if group else "Asia/Tashkent"
+                await self._assignment_repo.get_or_create_for_local_date(
+                    task_id,
+                    new_current.member_id,
+                    get_local_today(timezone_str),
+                    timezone_str,
+                )
+
+        await self._audit_repo.log(
+            action="queue_updated",
+            group_id=task.group_id if task else None,
+            user_id=admin_user_id,
+            entity_type="task",
+            entity_id=task_id,
+            details={"operation": "reorder", "order": member_ids_in_order},
+        )
+
     async def get_queue_preview(self, task_id: int) -> list:
         return await self._queue_service.preview_queue(task_id)
 

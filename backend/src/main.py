@@ -3,6 +3,7 @@ FastAPI ilovasining kirish nuqtasi.
 """
 
 from contextlib import asynccontextmanager
+from time import monotonic
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -45,10 +46,15 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# allow_origins=["*"] va allow_credentials=True birga ishlatilishi
+# spetsifikatsiya bo'yicha taqiqlangan - brauzer bunday javobni rad etadi.
+# Mini App cookie emas, Bearer token ishlatadi, shuning uchun "*" bo'lganda
+# credentials'ni o'chiramiz.
+_cors_origins = settings.cors_origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials="*" not in _cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -73,6 +79,41 @@ _MAINTENANCE_EXEMPT_PREFIXES = (
 )
 
 
+_MAINTENANCE_CACHE_TTL_SECONDS = 5.0
+_maintenance_cache: tuple[float, bool] | None = None
+
+
+async def _maintenance_mode_enabled() -> bool:
+    """
+    `maintenance_mode` bayrog'ini qisqa muddat keshlab o'qiydi.
+
+    Ilgari bu qiymat HAR BIR so'rovda alohida DB ulanishi ochib o'qilardi -
+    ya'ni bitta ham foyda keltirmaydigan qo'shimcha so'rov, har bir endpoint
+    uchun. Bayroq juda kam o'zgargani uchun bir necha soniyalik kesh yetarli:
+    Super Admin uni o'zgartirsa, eng ko'pi bilan 5 soniyada kuchga kiradi.
+    """
+    global _maintenance_cache
+
+    now = monotonic()
+    if _maintenance_cache is not None and now - _maintenance_cache[0] < _MAINTENANCE_CACHE_TTL_SECONDS:
+        return _maintenance_cache[1]
+
+    from .infrastructure.db.session import async_session_factory
+    from .repositories.settings_repository import SettingsRepository
+
+    try:
+        async with async_session_factory() as session:
+            value = await SettingsRepository(session).get("maintenance_mode")
+        enabled = value == "true"
+    except Exception:
+        # DB yiqilgan bo'lsa, butun API'ni 503 bilan yopib qo'ymaymiz -
+        # so'rov o'z yo'lida davom etsin va haqiqiy xatoni qaytarsin.
+        return False
+
+    _maintenance_cache = (now, enabled)
+    return enabled
+
+
 @app.middleware("http")
 async def maintenance_mode_middleware(request, call_next):
     """
@@ -85,13 +126,7 @@ async def maintenance_mode_middleware(request, call_next):
 
     from fastapi.responses import JSONResponse
 
-    from .infrastructure.db.session import async_session_factory
-    from .repositories.settings_repository import SettingsRepository
-
-    async with async_session_factory() as session:
-        value = await SettingsRepository(session).get("maintenance_mode")
-
-    if value == "true":
+    if await _maintenance_mode_enabled():
         return JSONResponse(
             status_code=503,
             content={

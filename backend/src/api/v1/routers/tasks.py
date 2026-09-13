@@ -154,6 +154,11 @@ class SwapRequest(BaseModel):
     member_id_b: int
 
 
+class ReorderRequest(BaseModel):
+    telegram_id: int
+    member_ids: list[int] = Field(min_length=1)
+
+
 async def _resolve_user_id(user_service: UserService, telegram_id: int) -> int | None:
     user = await user_service.get_by_telegram_id(telegram_id)
     return user.id if user else None
@@ -330,6 +335,29 @@ async def preview_queue(
     return ApiResponse(success=True, data=_entries_to_data(entries, task, timezone_str))
 
 
+@router.get("/{task_id}/queue/full", response_model=ApiResponse)
+async def full_queue(
+    task_id: int,
+    session: AsyncSession = Depends(get_session),
+    service: QueueService = Depends(get_queue_service),
+    task_service: TaskService = Depends(get_task_service),
+    group_service: GroupService = Depends(get_group_service),
+    identity: Identity = Depends(verify_bot_or_mini_app),
+):
+    """Navbatdagi BARCHA a'zolarni tartib bo'yicha qaytaradi (3 taga
+    cheklanmagan) - navbat tartibini to'liq qayta belgilash (reorder) UI'si
+    uchun kerak."""
+    task = await task_service.get_task(task_id)
+    if task is None:
+        return ApiResponse(success=False, message="Vazifa topilmadi")
+    await ensure_actor_can_access_group(identity, task.group_id, session)
+
+    entries = await service.get_full_queue(task_id)
+    group = await group_service._repo.get_by_id(task.group_id) if task else None
+    timezone_str = group.timezone if group else "Asia/Tashkent"
+    return ApiResponse(success=True, data=_entries_to_data(entries, task, timezone_str))
+
+
 @router.post("/{task_id}/queue/skip", response_model=ApiResponse)
 async def skip_current(
     task_id: int,
@@ -376,6 +404,37 @@ async def swap_members(
 
     await task_service.admin_swap(task_id, user_id, payload.member_id_a, payload.member_id_b)
     return ApiResponse(success=True, message="A'zolar navbatda almashtirildi")
+
+
+@router.post("/{task_id}/queue/reorder", response_model=ApiResponse)
+async def reorder_queue(
+    task_id: int,
+    payload: ReorderRequest,
+    session: AsyncSession = Depends(get_session),
+    task_service: TaskService = Depends(get_task_service),
+    user_service: UserService = Depends(get_user_service),
+    identity: Identity = Depends(verify_bot_or_mini_app),
+):
+    """Butun navbat tartibini `member_ids` ro'yxati bo'yicha qayta
+    belgilaydi - ro'yxat navbatdagi barcha a'zolarni o'z ichiga olishi
+    shart (aks holda xato qaytadi, hech narsa o'zgarmaydi)."""
+    await ensure_actor_owns_telegram_id(identity, payload.telegram_id, session)
+    user_id = await _resolve_user_id(user_service, payload.telegram_id)
+    if user_id is None:
+        return ApiResponse(success=False, message="Foydalanuvchi topilmadi")
+
+    task = await task_service.get_task(task_id)
+    if task is None:
+        return ApiResponse(success=False, message="Vazifa topilmadi")
+
+    await ensure_admin_for_group(user_id, task.group_id, session)
+
+    try:
+        await task_service.admin_reorder(task_id, user_id, payload.member_ids)
+    except ValueError as exc:
+        return ApiResponse(success=False, message=str(exc))
+
+    return ApiResponse(success=True, message="Navbat tartibi yangilandi")
 
 
 @router.get("/member/{telegram_id}", response_model=ApiResponse)

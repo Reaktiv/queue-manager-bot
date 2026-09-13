@@ -44,6 +44,20 @@ export interface TaskSummary {
   days_left?: number;
   is_active_now?: boolean;
   next_execution_date?: string;
+
+  /*
+   * Eslatma sozlamalari. Backend `GET /tasks/group/{id}` da bu to'rt
+   * maydonni ALLAQACHON qaytaradi, lekin frontend ularni hech qachon
+   * ko'rsatmagan - admin vazifa qanday sozlanganini bilish uchun uni
+   * o'chirib qayta yaratishi kerak edi. Yangi API chaqiruvi qo'shilmaydi,
+   * mavjud javobdagi ma'lumot ishlatiladi.
+   * `GET /tasks/member/{tg}` bu maydonlarni qaytarmaydi - shuning uchun
+   * ixtiyoriy.
+   */
+  reminder_interval_min_minutes?: number;
+  reminder_interval_max_minutes?: number;
+  reminder_start_hour?: number;
+  reminder_end_hour?: number;
 }
 
 export interface QueueEntry {
@@ -61,6 +75,19 @@ export interface MemberStatistics {
   total: number;
   completed: number;
   completion_rate: number;
+
+  /*
+   * 5 yulduzli profil darajasi (aralash model - backend `RatingService`):
+   *   rating_stars = guruhdoshlar bergan o'rtacha ball (hali baho
+   *   bo'lmasa 5.0) - jami jarima balli, 1.0 va 5.0 oralig'ida.
+   */
+  rating_stars: number;
+  /** Guruhdoshlar bergan o'rtacha sifat bahosi, hali hech kim baho bermagan bo'lsa `null`. */
+  peer_rating_avg: number | null;
+  /** Nechta guruhdosh baho berganini bildiradi. */
+  rating_count: number;
+  /** Jami jarima balli (o'tkazib yuborilgan kunlar soni) - rating_stars shundan ayiriladi. */
+  penalty_points: number;
 }
 
 export interface SuperAdminGroupSummary {

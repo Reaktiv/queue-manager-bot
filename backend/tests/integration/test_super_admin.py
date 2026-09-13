@@ -72,6 +72,55 @@ async def test_non_super_admin_gets_403(client, monkeypatch):
     assert resp.status_code == 403
 
 
+async def test_clear_error_logs_deletes_all_and_requires_super_admin(client, session, monkeypatch):
+    from backend.src.infrastructure.models.settings import SystemLog
+
+    user_id = await _register_super_admin(client, monkeypatch)
+    token = create_access_token(user_id, is_super_admin=True)
+
+    session.add_all(
+        [
+            SystemLog(level="ERROR", message="birinchi xato"),
+            SystemLog(level="ERROR", message="ikkinchi xato"),
+        ]
+    )
+    await session.flush()
+
+    resp = await client.get(
+        "/api/v1/superadmin/logs", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert len(resp.json()["data"]) == 2
+
+    resp = await client.delete(
+        "/api/v1/superadmin/logs", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is True
+    assert body["data"]["deleted_count"] == 2
+
+    resp = await client.get(
+        "/api/v1/superadmin/logs", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert resp.json()["data"] == []
+
+
+async def test_clear_error_logs_requires_super_admin(client, monkeypatch):
+    await _register_super_admin(client, monkeypatch)
+    resp = await client.post(
+        "/api/v1/users/register",
+        json={"telegram_id": 9003, "full_name": "Regular Joe"},
+        headers=HEADERS,
+    )
+    regular_user_id = resp.json()["data"]["id"]
+    token = create_access_token(regular_user_id, is_super_admin=False)
+
+    resp = await client.delete(
+        "/api/v1/superadmin/logs", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert resp.status_code == 403
+
+
 async def test_maintenance_mode_toggle_via_service(session):
     """
     Middleware alohida DB ulanishi ishlatgani uchun (background-safe dizayn),

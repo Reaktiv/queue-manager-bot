@@ -10,7 +10,7 @@ rasmni ✅/❌ tugmalar bilan guruhga yuboradi. Guruh a'zolari keyin
 """
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....api.auth_deps import Identity, ensure_actor_owns_telegram_id, verify_bot_or_mini_app
@@ -31,6 +31,11 @@ from ....services.photo_completion_service import (
     PendingApprovalError,
     SelfVoteError,
 )
+from ....services.rating_service import (
+    RatingNotAllowedError,
+    RatingWindowExpiredError,
+    SelfRatingError,
+)
 from ....services.task_service import TaskService
 from ....services.user_service import UserService
 
@@ -48,6 +53,11 @@ class ApiResponse(BaseModel):
 class VoteRequest(BaseModel):
     telegram_id: int
     approve: bool
+
+
+class RatingRequest(BaseModel):
+    telegram_id: int
+    stars: int = Field(ge=1, le=5)
 
 
 @router.post("/{task_id}", response_model=ApiResponse)
@@ -133,3 +143,44 @@ async def vote_completion(
         return ApiResponse(success=False, message="Siz bu guruh a'zosi emassiz")
 
     return ApiResponse(success=True, data=result, message="Ovozingiz qabul qilindi")
+
+
+@router.post("/{completion_id}/rate", response_model=ApiResponse)
+async def rate_completion(
+    completion_id: int,
+    payload: RatingRequest,
+    session: AsyncSession = Depends(get_session),
+    completion_service: CompletionService = Depends(get_completion_service),
+    identity: Identity = Depends(verify_bot_or_mini_app),
+):
+    """
+    Guruh a'zosi TASDIQLANGAN topshiriqqa 1-5 yulduz bilan sifat bahosi
+    qo'yadi. Bu `${completion_id}/vote` dagi tasdiqlash/rad etish ovozidan
+    ALOHIDA - u "bajarildimi?" ga, bu "qanday bajarildi?" ga javob beradi.
+    """
+    await ensure_actor_owns_telegram_id(identity, payload.telegram_id, session)
+
+    try:
+        result = await completion_service.submit_rating(
+            completion_id, payload.telegram_id, payload.stars
+        )
+    except CompletionNotFoundError:
+        return ApiResponse(success=False, message="Topshiriq topilmadi")
+    except RatingNotAllowedError:
+        return ApiResponse(
+            success=False,
+            message="Faqat guruh tomonidan tasdiqlangan vazifalarga baho berish mumkin",
+        )
+    except RatingWindowExpiredError:
+        return ApiResponse(
+            success=False,
+            message="Baholash muddati tugagan - tasdiqlangandan keyin faqat 1 soat ichida baho berish mumkin",
+        )
+    except SelfRatingError:
+        return ApiResponse(
+            success=False, message="Siz o'zingiz bajargan vazifaga o'zingiz baho bera olmaysiz"
+        )
+    except NotGroupMemberError:
+        return ApiResponse(success=False, message="Siz bu guruh a'zosi emassiz")
+
+    return ApiResponse(success=True, data=result, message="Bahoyingiz qabul qilindi")

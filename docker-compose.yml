@@ -68,6 +68,12 @@ services:
     container_name: qmb_bot
     restart: unless-stopped
     env_file: .env
+    environment:
+      # .env dagi BACKEND_URL=127.0.0.1:8000 lokal ishga tushirish uchun.
+      # Konteyner ichida 127.0.0.1 - botning O'ZI, backend emas; shuning uchun
+      # bu yerda servis nomiga almashtiramiz, aks holda botning barcha API
+      # so'rovlari "connection refused" bilan tugaydi.
+      BACKEND_URL: http://backend:8000
     depends_on:
       - backend
     volumes:
@@ -78,7 +84,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
     container_name: qmb_frontend
     restart: unless-stopped
     ports:

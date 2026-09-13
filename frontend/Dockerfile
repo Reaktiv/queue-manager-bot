@@ -5,7 +5,7 @@ COPY package.json package-lock.json* /app/
 RUN npm ci
 
 COPY . /app
-ARG VITE_API_BASE_URL=/api
+ARG VITE_API_BASE_URL=
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 RUN npm run build
 

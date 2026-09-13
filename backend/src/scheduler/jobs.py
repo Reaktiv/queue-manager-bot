@@ -13,6 +13,7 @@ import structlog
 from ..infrastructure.db.session import async_session_factory
 from ..infrastructure.models.group import Group
 from ..repositories.assignment_repository import AssignmentRepository
+from ..repositories.completion_rating_repository import CompletionRatingRepository
 from ..repositories.group_repository import GroupRepository
 from ..repositories.notification_repository import NotificationTemplateRepository
 from ..repositories.penalty_repository import PenaltyRepository
@@ -21,9 +22,10 @@ from ..repositories.task_repository import TaskRepository
 from ..repositories.user_repository import UserRepository
 from ..services.notification_service import NotificationService, format_telegram_html_mention
 from ..services.penalty_service import PenaltyService
+from ..services.rating_service import RatingService
 from ..utils.datetime_utils import (
-    DEFAULT_ZONEINFO,
     calculate_next_reminder_at,
+    get_timezone,
     get_local_today,
     local_date_to_utc_start,
     reminder_window_start_utc,
@@ -32,11 +34,6 @@ from ..utils.datetime_utils import (
 from sqlalchemy import select
 
 logger = structlog.get_logger()
-
-
-def _local_hour(group_timezone: str) -> int:
-    """Joriy soatni fixed Central Asia timezone bo'yicha qaytaradi."""
-    return datetime.now(DEFAULT_ZONEINFO).hour
 
 
 async def _send_reminder_for_task(
@@ -155,8 +152,8 @@ async def send_reminders() -> None:
 
 
 async def _process_overdue_assignment(
-    session, assignment, assignment_repo, penalty_service, task_repo, group_repo, user_repo,
-    notification_service,
+    session, assignment, assignment_repo, penalty_service, rating_service, task_repo, group_repo,
+    user_repo, notification_service,
 ) -> None:
     await assignment_repo.mark_overdue(assignment)
     should_warn = await penalty_service.register_missed_day(
@@ -164,6 +161,11 @@ async def _process_overdue_assignment(
         task_id=assignment.task_id,
         assignment_id=assignment.id,
     )
+    # Har bir o'tkazib yuborilgan kun - "5 yulduz tizimida" 1 yulduz jarimasi.
+    # Formula: daraja = guruhdoshlar bergan o'rtacha ball - jami jarima soni
+    # (RatingService.recalculate_and_get) - shuning uchun yangi jarima
+    # qo'shilgach darajani qayta hisoblash kifoya, alohida "-1" yozish shart emas.
+    new_stars = await rating_service.recalculate_and_get(assignment.member_id)
 
     task = await task_repo.get_by_id(assignment.task_id)
     member = await group_repo.get_member_by_id(assignment.member_id)
@@ -180,6 +182,7 @@ async def _process_overdue_assignment(
         user=user.full_name,
         task=task.name,
     )
+    text += f"\n\n⭐ Ushbu kun uchun 1 yulduz ayirildi. Hozirgi darajangiz: {new_stars}/5"
     await notification_service.send_private_message(user.telegram_id, text)
 
     if should_warn:
@@ -192,12 +195,16 @@ async def _process_overdue_assignment(
                 user=format_telegram_html_mention(user.full_name, user.telegram_id),
                 task=task.name,
             )
+            warning_text += f"\n\n⭐ Hozirgi darajasi: {new_stars}/5"
             await notification_service.send_group_message(
                 group.telegram_chat_id, warning_text
             )
 
     logger.info(
-        "task_marked_overdue", task_id=assignment.task_id, member_id=assignment.member_id
+        "task_marked_overdue",
+        task_id=assignment.task_id,
+        member_id=assignment.member_id,
+        rating_stars=str(new_stars),
     )
 
 
@@ -217,6 +224,11 @@ async def check_overdue_tasks() -> None:
         assignment_repo = AssignmentRepository(session)
         penalty_repo = PenaltyRepository(session)
         penalty_service = PenaltyService(penalty_repo)
+        rating_service = RatingService(
+            rating_repository=CompletionRatingRepository(session),
+            penalty_repository=penalty_repo,
+            group_repository=GroupRepository(session),
+        )
         task_repo = TaskRepository(session)
         group_repo = GroupRepository(session)
         user_repo = UserRepository(session)
@@ -229,8 +241,8 @@ async def check_overdue_tasks() -> None:
         for assignment in overdue_assignments:
             try:
                 await _process_overdue_assignment(
-                    session, assignment, assignment_repo, penalty_service, task_repo, group_repo,
-                    user_repo, notification_service,
+                    session, assignment, assignment_repo, penalty_service, rating_service,
+                    task_repo, group_repo, user_repo, notification_service,
                 )
             except Exception:
                 logger.exception(
@@ -375,7 +387,11 @@ async def send_pre_warnings() -> None:
         groups = list(groups_result.scalars().all())
 
         for group in groups:
-            tz = DEFAULT_ZONEINFO
+            # Ilgari bu yerda qat'iy DEFAULT_ZONEINFO turardi, ya'ni guruh
+            # halqasi ichida bo'lsa ham har bir guruh uchun bir xil (Toshkent)
+            # soat ishlatilardi. Qolgan barcha job'lar guruh vaqt zonasini
+            # hisobga oladi - bu bittasi mos kelmay qolgan edi.
+            tz = get_timezone(group.timezone)
             local_now = now.astimezone(tz)
             local_hour = local_now.hour
 

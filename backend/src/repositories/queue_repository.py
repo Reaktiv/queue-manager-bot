@@ -92,3 +92,25 @@ class QueueRepository:
 
         entry_a.position, entry_b.position = entry_b.position, entry_a.position
         await self._session.flush()
+
+    async def set_order(self, task_id: int, member_ids_in_order: list[int]) -> None:
+        """
+        Butun navbatni berilgan a'zolar ro'yxati tartibida qayta o'rnatadi
+        (masalan, admin barcha a'zolarni birma-bir tanlab yangi tartib
+        belgilaganda). Ro'yxat aynan navbatdagi a'zolarning bir xil
+        to'plamidan iborat bo'lishi shart - aks holda hech narsa
+        o'zgartirilmaydi va xato qaytariladi.
+        """
+        entries = await self.get_queue_for_task(task_id)
+        entries_by_member = {e.member_id: e for e in entries}
+
+        if len(member_ids_in_order) != len(entries) or set(member_ids_in_order) != set(
+            entries_by_member.keys()
+        ):
+            raise ValueError(
+                "Berilgan a'zolar ro'yxati navbatdagi joriy a'zolarga to'liq mos kelmadi"
+            )
+
+        for position, member_id in enumerate(member_ids_in_order):
+            entries_by_member[member_id].position = position
+        await self._session.flush()

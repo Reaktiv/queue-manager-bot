@@ -221,7 +221,7 @@ async def test_create_task_keeps_future_task_reminder_in_window(session, monkeyp
         start_date=datetime(2026, 7, 19, 0, 0, tzinfo=timezone.utc).date(),
     )
 
-    assert task.next_reminder_at == datetime(2026, 7, 18, 3, 0, tzinfo=timezone.utc)
+    assert task.next_reminder_at == datetime(2026, 7, 19, 3, 0, tzinfo=timezone.utc)
 
 
 async def test_create_task_assigns_current_active_member_and_sends_immediate_reminders(session, monkeypatch):

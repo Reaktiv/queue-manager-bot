@@ -2,14 +2,443 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ==========================================================================
+   QUEUE MANAGER BOT — DESIGN SYSTEM FOUNDATION
+   "Modern Telegram-native Liquid Glass Admin Dashboard"
+
+   Hammasi bitta faylda saqlanadi (ajratilgan @import emas): loyihada
+   `postcss-import` yo'q, shuning uchun import qilingan fayldagi
+   `@layer components` blokini Tailwind qayta ishlamaydi va u oddiy
+   native CSS layer'ga aylanib, kaskad tartibini buzadi. Bitta fayl =
+   bitta bashorat qilinadigan tartib.
+
+   Bo'limlar:
+     1. Rang tokenlari (dark-first)
+     2. O'lcham / radius / ko'tarilish tokenlari
+     3. Harakat (motion) tokenlari
+     4. Bazaviy elementlar
+     5. Liquid Glass materiallari
+     6. Yordamchi utilitalar
+     7. Reduced motion / transparency
+   ========================================================================== */
+
+/* ==========================================================================
+   1. RANG TOKENLARI — DARK-FIRST
+   --------------------------------------------------------------------------
+   Barcha ranglar "R G B" kanal uchligi sifatida yoziladi, chunki
+   tailwind.config.cjs ularni `rgb(var(--c-x) / <alpha-value>)` ko'rinishida
+   ishlatadi — shu tufayli `bg-surface/60` kabi alfa variantlari ishlaydi.
+
+   Standart holat — QORONG'I. Yorug' mavzu `[data-theme="light"]` orqali
+   yoki tizim sozlamasi orqali ustidan yoziladi. Ilgari teskari edi.
+
+   Kontrast: barcha matn/fon juftliklari WCAG AA (>=4.5:1) bo'yicha
+   hisoblab tekshirilgan. Nazorat chegaralari (input) >=3:1 (WCAG 1.4.11).
+   ========================================================================== */
+
+:root {
+  color-scheme: dark;
+
+  /* --- Fon iyerarxiyasi: chuqurdan yuzaga --- */
+  --c-ground: 10 12 17; /* #0A0C11 - eng chuqur fon */
+  --c-elevated: 16 19 26; /* #10131A - ko'tarilgan fon (header ostidagi) */
+  --c-surface: 22 26 35; /* #161A23 - kartalar, ro'yxat qatorlari */
+  --c-surface-2: 29 34 45; /* #1D222D - input, well, ichki bloklar */
+  --c-interactive: 36 42 55; /* #242A37 - bosilishi mumkin bo'lgan yuza */
+  --c-active: 44 51 65; /* #2C3341 - tanlangan/faol yuza */
+  /* Trek (surface-2) USTIDA turadigan ko'tarilgan element: segmented
+     tugmaning tanlangan holati kabi. Qorong'i mavzuda `surface`
+     `surface-2` dan QORONG'IROQ, shuning uchun uni bu yerda ishlatib
+     bo'lmaydi - ko'tarilgan element botgandek ko'rinib qolardi. */
+  --c-raised: 48 56 72; /* #303848 - surface-2 dan sezilarli ochroq (1.35:1 ko'tarilish) */
+
+  /* --- Matn --- */
+  --c-ink: 238 242 248; /* #EEF2F8 - 15.50:1 surface ustida */
+  --c-ink-2: 159 170 188; /* #9FAABC - 7.42:1 */
+  --c-muted: 130 143 161; /* #828FA1 - 4.85:1 surface-2 ustida (AA) */
+  --c-disabled: 92 102 118; /* #5C6676 - faqat o'chirilgan holat uchun */
+
+  /* --- Chiziqlar ---
+     line       : dekorativ ajratgich (karta ichidagi), past kontrast yetarli
+     control-edge: input/nazorat chegarasi, >=3:1 bo'lishi SHART */
+  --c-line: 38 44 57; /* #262C39 */
+  --c-control-edge: 102 114 137; /* #667289 - 3.29:1 fill, 3.59:1 tashqi */
+
+  /* --- Aksent: azure (Telegram-native, binafsha emas) --- */
+  --c-accent: 61 155 255; /* #3D9BFF - 6.08:1 matn/ikonka uchun */
+  --c-accent-solid: 31 111 235; /* #1F6FEB - to'ldirilgan tugma foni */
+  --c-accent-ink: 255 255 255; /* oq, 4.63:1 accent-solid ustida */
+  --c-accent-2: 96 205 255; /* #60CDFF - ikkilamchi aksent (gradient/diagramma) */
+
+  /* --- Semantik --- */
+  --c-success: 46 216 167; /* #2ED8A7 - 9.53:1 */
+  --c-warning: 255 176 32; /* #FFB020 - 9.52:1 */
+  --c-danger: 255 95 109; /* #FF5F6D - 5.89:1 */
+  --c-info: 79 195 247; /* #4FC3F7 - 8.69:1 */
+  --c-semantic-ink: 10 12 17; /* to'ldirilgan semantik fon ustidagi matn */
+
+  /* --- Soya rangi --- */
+  --c-shadow: 0 0 0;
+
+  /* --- Glass: material foni va yorug' qirrasi --- */
+  --c-glass: 22 26 35;
+  --glass-alpha-subtle: 0.62;
+  --glass-alpha-medium: 0.72;
+  --glass-alpha-strong: 0.8;
+  --glass-edge: 255 255 255;
+  --glass-edge-alpha: 0.1;
+  --c-scrim: 4 6 10;
+
+  /* --- Aurora: glass "ushlab turadigan" yagona qo'zg'almas yorug'lik --- */
+  --aurora-a: 61 155 255;
+  --aurora-b: 96 205 255;
+  --aurora-alpha: 0.07;
+}
+
+/* --------------------------------------------------------------------------
+   YORUG' MAVZU — aniq tanlov (Telegram colorScheme === "light")
+   -------------------------------------------------------------------------- */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --c-ground: 244 246 250; /* #F4F6FA */
+  --c-elevated: 255 255 255;
+  --c-surface: 255 255 255;
+  --c-surface-2: 238 241 246; /* #EEF1F6 */
+  --c-interactive: 228 233 240; /* #E4E9F0 */
+  --c-active: 216 223 233; /* #D8DFE9 */
+  --c-raised: 255 255 255; /* yorug' mavzuda oq trekdan ochroq */
+
+  --c-ink: 15 22 32; /* #0F1620 - 18.17:1 */
+  --c-ink-2: 90 102 120; /* #5A6678 - 5.82:1 */
+  --c-muted: 95 106 123; /* #5F6A7B - 4.84:1 surface-2 ustida (AA) */
+  --c-disabled: 150 159 173;
+
+  --c-line: 223 228 236; /* #DFE4EC */
+  --c-control-edge: 125 138 158; /* #7D8A9E - 3.09:1 fill, 3.50:1 tashqi */
+
+  --c-accent: 11 103 208; /* #0B67D0 - 5.43:1 */
+  --c-accent-solid: 11 103 208;
+  --c-accent-ink: 255 255 255; /* 5.43:1 */
+  --c-accent-2: 12 110 158;
+
+  --c-success: 11 125 95; /* #0B7D5F - 5.11:1 (oldingi jade AA'dan o'tmasdi) */
+  --c-warning: 154 91 8; /* #9A5B08 - 5.42:1 (oldingi amber 2.77:1 edi!) */
+  --c-danger: 200 50 63; /* #C8323F - 5.27:1 */
+  --c-info: 12 110 158; /* #0C6E9E - 5.62:1 */
+  --c-semantic-ink: 255 255 255;
+
+  --c-shadow: 24 28 56;
+
+  --c-glass: 255 255 255;
+  --glass-alpha-subtle: 0.68;
+  --glass-alpha-medium: 0.78;
+  --glass-alpha-strong: 0.86;
+  --glass-edge: 255 255 255;
+  --glass-edge-alpha: 0.7;
+  --c-scrim: 15 22 32;
+
+  --aurora-a: 11 103 208;
+  --aurora-b: 12 110 158;
+  --aurora-alpha: 0.05;
+}
+
+/* ==========================================================================
+   2. O'LCHAM / RADIUS / KO'TARILISH
+   --------------------------------------------------------------------------
+   Asosiy shkalalar tailwind.config.cjs da yashaydi (u yerda ular utilita
+   klasslarga aylanadi). Bu yerda faqat maxsus CSS ichida kerak bo'ladigan
+   qiymatlar takrorlanadi.
+   ========================================================================== */
+
+:root {
+  /*
+   * Radius: nazorat 12 / karta 16 / hero 20 / sheet 28 - to'liq shkala
+   * `tailwind.config.cjs`'ning `borderRadius`ida yashaydi. Shu yerda
+   * FAQAT `--r-control` qoladi: u xom CSS'da ham kerak (pastdagi
+   * `:focus-visible`), qolganlari esa hech qayerda o'qilmasdi - ular
+   * Tailwind konfiguratsiyasini "hujjatlashtirish" uchun saqlab
+   * qo'yilgan, hech qanday qatorda ishlatilmagan o'lik o'zgaruvchilar edi.
+   */
+  --r-control: 0.75rem;
+
+  /* Blur darajalari — 28px qat'iy yuqori chegara (performans) */
+  --blur-subtle: 12px;
+  --blur-medium: 20px;
+  --blur-strong: 28px;
+
+  /*
+   * Tegish maydoni. `--gutter` ATAYLAB yo'q: `tailwind.config.cjs`ning
+   * `spacing.gutter` (`px-gutter` utilitasi) o'z literal qiymatiga ega -
+   * bu yerdagi nusxa hech qayerda o'qilmasdi.
+   */
+  --tap-min: 44px;
+
+  /* Telegram viewport balandligi — useTelegramViewport hook to'ldiradi.
+     Zaxira: dinamik viewport birligi. */
+  --tg-stable-viewport: 100dvh;
+}
+
+/* ==========================================================================
+   3. HARAKAT (MOTION)
+   ========================================================================== */
+
+/*
+ * `--d-base`/`--d-sheet`/`--e-out`/`--e-standard` faqat
+ * `tailwind.config.cjs`ning `animation` ta'riflarida ishlatiladi
+ * (`riseIn`, `sheetUp`, `fadeIn`). `--d-fast`/`--d-slow` esa hech qayerda
+ * o'qilmasdi - `duration-fast`/`duration-slow` utilitalari o'zining
+ * mustaqil literal qiymatiga ega, shuning uchun olib tashlandi.
+ */
+:root {
+  --d-base: 200ms; /* holat o'zgarishi, tab */
+  --d-sheet: 320ms; /* sheet kirishi */
+
+  --e-out: cubic-bezier(0.22, 1, 0.36, 1); /* asosiy: tez chiqib, yumshoq to'xtaydi */
+  --e-standard: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ==========================================================================
+   4. BAZAVIY ELEMENTLAR
+   ========================================================================== */
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
 body {
   margin: 0;
-  background-color: var(--tg-theme-bg-color, #ffffff);
-  color: var(--tg-theme-text-color, #000000);
-  font-family:
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    Roboto,
-    sans-serif;
+  min-height: 100%;
+}
+
+body {
+  background-color: rgb(var(--c-ground));
+  color: rgb(var(--c-ink));
+  /*
+   * Tizim shrifti. Ilgari bu yerda "Inter" birinchi turardi, lekin u
+   * hech qachon yuklanmagan (na @font-face, na <link>) — ya'ni hamma
+   * baribir tizim shriftini ko'rar edi. Endi CSS haqiqatni aytadi:
+   * nol bayt, platformaga mos, WebView'da FOUT yo'q.
+   */
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  font-feature-settings: "tnum";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overscroll-behavior-y: none;
+}
+
+/* Fokus: har bir interaktiv element uchun ko'rinadigan halqa.
+   Ilgari loyihada birorta ham `focus-visible` yo'q edi. */
+:focus-visible {
+  outline: 2px solid rgb(var(--c-accent));
+  outline-offset: 2px;
+  border-radius: var(--r-control);
+}
+
+/* Sana/raqam input'lari mavzuga mos bo'lsin */
+input[type="date"],
+input[type="number"] {
+  color-scheme: inherit;
+}
+
+/* ==========================================================================
+   5. LIQUID GLASS MATERIALLARI
+   --------------------------------------------------------------------------
+   Uchta daraja, boshqa hech qanday "shishasimon" effekt yo'q.
+
+     glass-subtle  — suzuvchi kichik yuzalar (toast, chip)
+     glass-medium  — ilova xromi: sticky header, tab bar
+     glass-strong  — modal/sheet
+
+   QOIDALAR (ataylab cheklangan):
+     1. Glass faqat kontent USTIDA suzadigan yuza uchun. Kartalar,
+        jadvallar, ro'yxat qatorlari — HAMISHA shaffof emas (opaque).
+     2. Glass ichida glass bo'lmaydi. Bir vaqtda ekranda bitta blur qatlam.
+     3. Skroll qilinadigan konteyner ichidagi hech narsa blur bo'lmaydi —
+        backdrop har kadrda qayta hisoblanadi va Android'da kadr tushadi.
+     4. Blur 28px dan oshmaydi.
+
+   Har bir darajada `backdrop-filter` ishlamasa — shaffof bo'lmagan zaxira.
+   ========================================================================== */
+
+@layer components {
+  .glass-subtle,
+  .glass-medium,
+  .glass-strong {
+    /* Yorug' qirra: aurora'ni ushlab turadigan 1px yuqori chiziq.
+       Aynan shu detal "suyuq shisha" hissini beradi, gradient emas. */
+    box-shadow: inset 0 1px 0 rgb(var(--glass-edge) / var(--glass-edge-alpha));
+    border: 1px solid rgb(var(--c-line));
+  }
+
+  .glass-subtle {
+    background-color: rgb(var(--c-glass) / var(--glass-alpha-subtle));
+    -webkit-backdrop-filter: blur(var(--blur-subtle)) saturate(150%);
+    backdrop-filter: blur(var(--blur-subtle)) saturate(150%);
+  }
+
+  .glass-medium {
+    background-color: rgb(var(--c-glass) / var(--glass-alpha-medium));
+    -webkit-backdrop-filter: blur(var(--blur-medium)) saturate(170%);
+    backdrop-filter: blur(var(--blur-medium)) saturate(170%);
+    box-shadow: inset 0 1px 0 rgb(var(--glass-edge) / var(--glass-edge-alpha)),
+      0 1px 0 rgb(var(--c-line));
+    border: none;
+  }
+
+  .glass-strong {
+    background-color: rgb(var(--c-glass) / var(--glass-alpha-strong));
+    -webkit-backdrop-filter: blur(var(--blur-strong)) saturate(180%);
+    backdrop-filter: blur(var(--blur-strong)) saturate(180%);
+  }
+
+  /* Modal orqa fon qoplamasi — blur emas, faqat qorayish.
+     Sheet'ning o'zi allaqachon blur qilyapti; ikkalasi birga = ikki
+     backdrop o'tishi = behuda xarajat. */
+  .scrim {
+    background-color: rgb(var(--c-scrim) / 0.58);
+  }
+
+  /* Aurora: butun ilova ortidagi YAGONA qo'zg'almas yorug'lik dog'i.
+     `fixed` + animatsiyasiz => bir marta chiziladi, skrollda qayta
+     chizilmaydi. Glassga sinadigan narsa beradi; usiz blur shunchaki
+     kulrang ko'rinadi. */
+  .app-aurora {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-image: radial-gradient(
+        60% 45% at 15% 0%,
+        rgb(var(--aurora-a) / var(--aurora-alpha)) 0%,
+        transparent 70%
+      ),
+      radial-gradient(
+        55% 40% at 90% 8%,
+        rgb(var(--aurora-b) / var(--aurora-alpha)) 0%,
+        transparent 72%
+      );
+  }
+}
+
+/*
+ * Modal ochiq bo'lganda ilova xromi (sarlavha, pastki panel) blur
+ * qilmaydi. U `scrim` ostida - ko'rinmaydi, lekin brauzer kompozitsiyasi
+ * uni baribir hisoblaydi. Super Admin ekranida bu bir vaqtning o'zida
+ * uchta backdrop qatlami bo'lardi; endi bittasi (sheet) qoladi.
+ */
+body.modal-open .app-chrome {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background-color: rgb(var(--c-elevated));
+}
+
+/* Zaxira: backdrop-filter yo'q (eski WebView, tejamkor rejim).
+   Bunda yuzalar SHAFFOF BO'LMAGAN bo'ladi — yarim shaffof qolsa
+   matn o'qib bo'lmas holga kelardi. */
+@supports not (
+  (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))
+) {
+  .glass-subtle,
+  .glass-medium,
+  .glass-strong {
+    background-color: rgb(var(--c-elevated));
+  }
+}
+
+/* Foydalanuvchi shaffoflikni kamaytirishni so'ragan bo'lsa — blur o'chadi. */
+@media (prefers-reduced-transparency: reduce) {
+  .glass-subtle,
+  .glass-medium,
+  .glass-strong {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background-color: rgb(var(--c-elevated));
+  }
+  .app-aurora {
+    display: none;
+  }
+}
+
+/* ==========================================================================
+   6. YORDAMCHI UTILITALAR
+   ========================================================================== */
+
+/* Raqamlar jadvallarda tik ustun bo'lib tursin */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Telefon "notch" va pastki chiziq uchun joy */
+.pt-safe {
+  padding-top: max(env(safe-area-inset-top), 0.5rem);
+}
+.pb-safe {
+  padding-bottom: max(env(safe-area-inset-bottom), 0.5rem);
+}
+
+/* Gorizontal skroll qiladigan joylarda scrollbar ko'rinmasin */
+.no-bar {
+  scrollbar-width: none;
+}
+.no-bar::-webkit-scrollbar {
+  display: none;
+}
+
+/*
+ * Tegish maydonini 44px ga yetkazadi, elementni kattalashtirmasdan.
+ * Kichik ikonka tugmalar uchun: vizual 32px, barmoq uchun 44px.
+ */
+.tap-44 {
+  position: relative;
+}
+.tap-44::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max(100%, var(--tap-min));
+  height: max(100%, var(--tap-min));
+  transform: translate(-50%, -50%);
+}
+
+/* Skeleton yuklanish effekti */
+.shimmer {
+  background-image: linear-gradient(
+    90deg,
+    rgb(var(--c-surface)) 0%,
+    rgb(var(--c-interactive)) 50%,
+    rgb(var(--c-surface)) 100%
+  );
+  background-size: 200% 100%;
+}
+
+/* ==========================================================================
+   7. REDUCED MOTION
+   --------------------------------------------------------------------------
+   Ilgari loyihada bu umuman yo'q edi: `animate-ping` va `animate-shimmer`
+   har doim, to'xtovsiz ishlardi.
+   ========================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    /*
+     * KECHIKISH ham nolga tushirilishi SHART. Faqat `animation-duration`
+     * ni nolga tushirish yetarli emas: ro'yxat qatorlari bosqichma-bosqich
+     * paydo bo'lish uchun `animation-delay` (40ms, 80ms, ...) va
+     * `fill-mode: both` ishlatadi, ya'ni kechikish davomida element
+     * opacity:0 da turadi. Kechikish qolsa, harakatni o'chirgan
+     * foydalanuvchi ro'yxat qatorlari "yo'q" bo'lgan ekranni ko'radi.
+     */
+    animation-delay: 0ms !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
 }

@@ -123,3 +123,41 @@ async def test_preview_queue_returns_first_three(session):
 
     assert len(preview) == 3
     assert [e.member_id for e in preview] == member_ids[:3]
+
+
+async def test_get_full_queue_returns_all_members_in_order(session):
+    task, member_ids = await _create_task_with_queue(session, member_count=5)
+    queue_repo = QueueRepository(session)
+    service = QueueService(queue_repo)
+
+    full = await service.get_full_queue(task.id)
+
+    assert [e.member_id for e in full] == member_ids
+
+
+async def test_admin_reorder_applies_full_new_order(session):
+    task, member_ids = await _create_task_with_queue(session, member_count=5)
+    queue_repo = QueueRepository(session)
+    service = QueueService(queue_repo)
+
+    new_order = list(reversed(member_ids))
+    await service.admin_reorder(task.id, new_order)
+
+    updated = await queue_repo.get_queue_for_task(task.id)
+    assert [e.member_id for e in updated] == new_order
+
+
+async def test_admin_reorder_rejects_mismatched_member_set(session):
+    task, member_ids = await _create_task_with_queue(session, member_count=3)
+    queue_repo = QueueRepository(session)
+    service = QueueService(queue_repo)
+
+    # Bitta a'zo tushib qolgan (to'liq to'plam emas) - saqlanmasligi kerak.
+    incomplete_order = member_ids[:2]
+
+    with pytest.raises(ValueError):
+        await service.admin_reorder(task.id, incomplete_order)
+
+    # Hech narsa o'zgarmagan bo'lishi kerak.
+    unchanged = await queue_repo.get_queue_for_task(task.id)
+    assert [e.member_id for e in unchanged] == member_ids

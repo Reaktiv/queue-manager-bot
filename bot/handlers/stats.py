@@ -6,8 +6,8 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
-from bot.i18n.translator import t
-from bot.services.api_client import ApiClient
+from i18n.translator import t
+from services.api_client import ApiClient
 
 router = Router(name="stats")
 
