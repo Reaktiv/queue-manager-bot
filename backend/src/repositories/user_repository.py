@@ -47,6 +47,11 @@ class UserRepository:
         await self._session.flush()
         return user
 
+    async def set_phone_number(self, user: User, phone_number: str) -> User:
+        user.phone_number = phone_number
+        await self._session.flush()
+        return user
+
     async def list_all(self, limit: int = 500) -> list[User]:
         stmt = select(User).order_by(User.created_at.desc()).limit(limit)
         result = await self._session.execute(stmt)

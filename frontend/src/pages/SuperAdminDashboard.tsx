@@ -46,7 +46,7 @@ export function SuperAdminDashboard({ onBack }: { onBack: () => void }) {
   const [confirmClearLogs, setConfirmClearLogs] = useState(false);
   const [clearingLogs, setClearingLogs] = useState(false);
 
-  const stats = useAsyncData<SystemStats>(() => api.getSystemStats(), []);
+  const stats = useAsyncData<SystemStats>("system-stats", () => api.getSystemStats(), []);
 
   /*
    * Bo'lim faqat BIRINCHI MARTA ochilganda yuklanadi va keyin keshda qoladi.
@@ -66,14 +66,17 @@ export function SuperAdminDashboard({ onBack }: { onBack: () => void }) {
     setVisited((v) => (v[tab] ? v : { ...v, [tab]: true }));
   }, [tab]);
   const groups = useAsyncData<SuperAdminGroupSummary[]>(
+    "all-groups",
     visited.groups ? () => api.listAllGroups() : null,
     [!!visited.groups]
   );
   const users = useAsyncData<SuperAdminUserSummary[]>(
+    "all-users",
     visited.users ? () => api.listAllUsers() : null,
     [!!visited.users]
   );
   const logs = useAsyncData<ErrorLog[]>(
+    "error-logs",
     visited.logs ? () => api.listErrorLogs() : null,
     [!!visited.logs]
   );

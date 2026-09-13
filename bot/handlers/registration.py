@@ -8,6 +8,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
 from i18n.translator import t
+from keyboards.reply import main_menu_keyboard
 from services.api_client import ApiClient
 from states.fsm import CreateGroupStates, JoinGroupStates
 
@@ -38,7 +39,15 @@ async def handle_start(message: Message, api_client: ApiClient) -> None:
         language=lang,
     )
 
-    await message.answer(t("welcome", lang=lang, name=user.first_name))
+    # Doimiy pastki menyu DARHOL ko'rsatiladi - foydalanuvchi har safar
+    # Mini App'ga kirmasdan ham Profil/vazifalar/yordamga bir bosishda
+    # o'ta oladi. Telefon raqami so'ralishi BU YERDA emas - u faqat
+    # "Profil" ochilganda (agar hali ulashilmagan bo'lsa) so'raladi
+    # (handlers/profile.py), shunda /start darhol to'liq menyu bilan
+    # yakunlanadi, oraliq "raqam ulashasizmi?" bosqichi bilan kechikmaydi.
+    await message.answer(
+        t("welcome", lang=lang, name=user.first_name), reply_markup=main_menu_keyboard()
+    )
 
 
 @router.message(Command("join"))

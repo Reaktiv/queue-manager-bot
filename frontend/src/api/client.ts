@@ -25,6 +25,27 @@ export function setTokens(access: string, refresh: string) {
   refreshToken = refresh;
 }
 
+/*
+ * Hech qanday timeout yo'q edi: agar tunnel/backend so'rovni umuman
+ * qaytarmasa (masalan DB ulanish puli tugab qolsa yoki tunnel jim
+ * osilib qolsa), `fetch` promise'i ABADIY osilib qolardi. `useAsyncData`
+ * shu promise'ni kutayotgani uchun `loading` doim `true` bo'lib qolardi -
+ * foydalanuvchiga butun ilova "qotib qolgandek" ko'rinardi, hech qanday
+ * xato yoki qayta urinish tugmasi chiqmasdi. Endi har bir so'rov shu
+ * muddatdan keyin o'zi bekor qilinadi va aniq xato bilan tugaydi.
+ */
+const REQUEST_TIMEOUT_MS = 15_000;
+
+async function fetchWithTimeout(url: string, options: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function request<T>(
   path: string,
   options: RequestInit = {},
@@ -41,9 +62,13 @@ async function request<T>(
 
   let response: Response;
   try {
-    response = await fetch(`${BASE_URL}${path}`, { ...options, headers });
-  } catch {
-    return { success: false, data: null, message: "Serverga ulanib bo'lmadi" } as ApiResponse<T>;
+    response = await fetchWithTimeout(`${BASE_URL}${path}`, { ...options, headers });
+  } catch (err) {
+    const message =
+      err instanceof DOMException && err.name === "AbortError"
+        ? "Server javob bermadi - vaqt tugadi"
+        : "Serverga ulanib bo'lmadi";
+    return { success: false, data: null, message } as ApiResponse<T>;
   }
 
   if (response.status === 401 && retry && refreshToken) {
@@ -131,7 +156,7 @@ function refreshAccessToken(): Promise<boolean> {
 
 async function doRefresh(): Promise<boolean> {
   try {
-    const response = await fetch(`${BASE_URL}/api/v1/auth/refresh`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/v1/auth/refresh`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refresh_token: refreshToken }),

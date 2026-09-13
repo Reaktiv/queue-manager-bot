@@ -1,12 +1,13 @@
 """
 Statistika va umumiy yordam handlerlari.
 """
-from aiogram import Router
+from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
 from i18n.translator import t
+from keyboards.reply import HELP_BUTTON
 from services.api_client import ApiClient
 
 router = Router(name="stats")
@@ -38,6 +39,7 @@ async def handle_stats(message: Message, state: FSMContext, api_client: ApiClien
 
 
 @router.message(Command("help"))
+@router.message(F.text == HELP_BUTTON)
 async def handle_help(message: Message) -> None:
     await message.answer(
         "🤖 <b>QueueManagerBot buyruqlari</b>\n\n"

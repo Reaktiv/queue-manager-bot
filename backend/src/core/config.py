@@ -65,11 +65,16 @@ class Settings(BaseSettings):
         return [origin.strip() for origin in self.ALLOWED_ORIGINS.split(",") if origin.strip()]
 
     # --- Database ---
-    # --- Database ---
-    POSTGRES_USER: str = "postgres"  # qmb_user edi -> postgres qildik
-    POSTGRES_PASSWORD: str = "0980"  # qmb_pass edi -> 0980 qildik
-    POSTGRES_DB: str = "queue_manager_bot"  # qmb_db edi -> queue_manager_bot qildik
-    POSTGRES_HOST: str = "localhost"  # postgres edi -> localhost qildik
+    POSTGRES_USER: str = "postgres"
+    # DIQQAT: bu yerda avval haqiqiy ko'ringan qattiq kodlangan parol
+    # ("0980") turardi - ochiq manba kodida saqlangan har qanday parol
+    # ishonchsiz hisoblanadi, hattoki hech qachon ishlatilmagan bo'lsa ham.
+    # Bo'sh qoldirilgan - `.env` orqali aniq berilishi SHART, aks holda
+    # quyidagi `_fail_fast_on_insecure_production_defaults` production'da
+    # ishga tushishni rad etadi.
+    POSTGRES_PASSWORD: str = Field(default="")
+    POSTGRES_DB: str = "queue_manager_bot"
+    POSTGRES_HOST: str = "localhost"
     POSTGRES_PORT: int = 5432
 
     @property
@@ -137,6 +142,8 @@ class Settings(BaseSettings):
             insecure_fields.append("BOT_INTERNAL_SECRET")
         if not self.BOT_TOKEN:
             insecure_fields.append("BOT_TOKEN")
+        if not self.POSTGRES_PASSWORD:
+            insecure_fields.append("POSTGRES_PASSWORD")
 
         if insecure_fields:
             raise ValueError(

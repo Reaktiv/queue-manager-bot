@@ -12,19 +12,49 @@ import type { ApiResponse } from "../types";
  * chalg'ituvchi. STEP 3 ning 13-bo'limi aniq "API error" va "retry"
  * holatlarini talab qiladi, shuning uchun shu yerda markazlashtiramiz.
  *
- * Bu kutubxona emas - 40 qator oddiy hook. Hech qanday kesh, hech qanday
- * global do'kon: sahifalar avvalgidek mustaqil qoladi.
+ * KESH (stale-while-revalidate): komponent qayta o'rnatilganda - masalan
+ * foydalanuvchi guruhlar ro'yxatiga qaytib, keyin YANA o'sha guruhga
+ * kirganda - ekran har safar bo'sh skeletdan boshlanardi, garchi bir
+ * necha soniya oldin xuddi shu ma'lumot allaqachon yuklangan bo'lsa ham.
+ * Bu ilova "qotib" his qilinishining asosiy sababi edi: har bosishda
+ * to'liq qayta yuklanish. Endi so'nggi muvaffaqiyatli javob modul
+ * darajasidagi keshda saqlanadi va DARHOL ko'rsatiladi, so'rov esa orqa
+ * fonda (`revalidating`) yuboriladi - foydalanuvchi bo'sh skeletni FAQAT
+ * ilova umrida shu kalit uchun BIRINCHI marta ko'radi.
  */
 
 export interface AsyncState<T> {
   data: T | null;
   error: string | null;
   loading: boolean;
+  /** Keshdagi ma'lumot ko'rsatilib, orqa fonda yangilanayotganda `true`. */
+  revalidating: boolean;
   /** Xatodan keyin qayta urinish yoki mutatsiyadan keyin yangilash. */
   reload: () => void;
 }
 
+interface CacheEntry {
+  data: unknown;
+}
+
+// Ilova umri davomida yashaydigan oddiy Map - sahifa yopilganda (yoki
+// qayta yuklanganda) tozalanadi. Bir nechta o'nlab kalitdan oshmaydi
+// (har bir ekran/parametr birikmasi uchun bittadan), shuning uchun
+// tozalash strategiyasi (LRU va h.k.) ortiqcha murakkablik bo'lardi.
+const cache = new Map<string, CacheEntry>();
+
+function buildKey(namespace: string, deps: unknown[]): string {
+  return `${namespace}:${JSON.stringify(deps)}`;
+}
+
 export function useAsyncData<T>(
+  /**
+   * Kesh kaliti negizi - shu ma'lumot turini nomlaydi (masalan
+   * `"group-tasks"`). `deps` bilan birga to'liq kalitni hosil qiladi,
+   * shuning uchun bir xil `namespace`dagi turli parametrlar (masalan
+   * boshqa-boshqa `group.id`) mustaqil keshlanadi.
+   */
+  namespace: string,
   /**
    * `null` = hali so'ramaymiz (foydalanuvchi yo'q, sheet yopiq, bo'lim
    * ochilmagan). Ilgari chaqiruv joylari buning o'rniga soxta hal
@@ -48,11 +78,17 @@ export function useAsyncData<T>(
     fetcherRef.current = fetcher;
   });
 
-  const [state, setState] = useState<{
-    data: T | null;
-    error: string | null;
-    loading: boolean;
-  }>({ data: null, error: null, loading: true });
+  const key = buildKey(namespace, deps);
+
+  const [state, setState] = useState<{ data: T | null; error: string | null; loading: boolean }>(
+    () => {
+      const cached = cache.get(key);
+      return cached
+        ? { data: cached.data as T, error: null, loading: false }
+        : { data: null, error: null, loading: true };
+    }
+  );
+  const [revalidating, setRevalidating] = useState(false);
 
   const [nonce, setNonce] = useState(0);
   // Kechikib kelgan eski javob yangisining ustiga yozmasligi uchun.
@@ -60,20 +96,39 @@ export function useAsyncData<T>(
 
   useEffect(() => {
     const runId = ++runIdRef.current;
-
     const run = fetcherRef.current;
+
     if (!run) {
       setState({ data: null, error: null, loading: false });
+      setRevalidating(false);
       return;
     }
 
-    setState((s) => ({ ...s, loading: true, error: null }));
+    const entry = cache.get(key);
+    if (entry) {
+      // Keshda bor - darhol ko'rsatamiz, orqa fonda yangilaymiz. Bo'sh
+      // skelet YO'Q: foydalanuvchi eski (bir necha soniya oldingi)
+      // ma'lumotni darhol ko'radi, u orqa fonda jimgina yangilanadi.
+      setState({ data: entry.data as T, error: null, loading: false });
+      setRevalidating(true);
+    } else {
+      setState((s) => ({ ...s, loading: true, error: null }));
+      setRevalidating(false);
+    }
 
     run()
       .then((res) => {
         if (runId !== runIdRef.current) return;
         if (res.success) {
+          cache.set(key, { data: res.data });
           setState({ data: res.data, error: null, loading: false });
+        } else if (entry) {
+          // Orqa fondagi yangilanish muvaffaqiyatsiz bo'ldi, lekin
+          // ekranda allaqachon ishlaydigan (eski) ma'lumot bor - uni
+          // bitta vaqtinchalik xato bilan almashtirish orqaga qadam
+          // bo'lardi. Eski ma'lumot qoladi, xato jimgina e'tiborsiz
+          // qoldiriladi (xuddi shu narsa `catch`da ham amal qiladi).
+          setState({ data: entry.data as T, error: null, loading: false });
         } else {
           setState({
             data: null,
@@ -81,16 +136,22 @@ export function useAsyncData<T>(
             loading: false,
           });
         }
+        setRevalidating(false);
       })
       .catch(() => {
         // `client.ts` dagi `request()` odatda o'zi ushlaydi, bu qo'shimcha to'r.
         if (runId !== runIdRef.current) return;
-        setState({ data: null, error: "Serverga ulanib bo'lmadi", loading: false });
+        if (entry) {
+          setState({ data: entry.data as T, error: null, loading: false });
+        } else {
+          setState({ data: null, error: "Serverga ulanib bo'lmadi", loading: false });
+        }
+        setRevalidating(false);
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [...deps, nonce]);
+  }, [key, nonce]);
 
   const reload = useCallback(() => setNonce((n) => n + 1), []);
 
-  return { ...state, reload };
+  return { ...state, revalidating, reload };
 }

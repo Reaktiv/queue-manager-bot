@@ -220,30 +220,60 @@ async def list_group_tasks(
     group_service: GroupService = Depends(get_group_service),
     identity: Identity = Depends(verify_bot_or_mini_app),
 ):
+    """
+    DIQQAT (ishlash tezligi): ilgari bu yerda har bir vazifa uchun IKKITA
+    alohida so'rov bajarilardi (joriy navbat yozuvi + a'zo/user) - N ta
+    vazifa uchun 1 + 2N ketma-ket DB round-trip. Guruhda 10 ta vazifa
+    bo'lsa, bu 21 ta ketma-ket so'rov degani - Mini App HAR BIR ochilishda
+    shu endpointni chaqiradi, shuning uchun aynan shu N+1 naqsh ilovaning
+    "qotib qolgandek" sekin ishlashining asosiy sababi edi. Endi navbat
+    yozuvlari va a'zo/user ma'lumotlari IKKITA (jami) so'rov bilan
+    ommaviy (batch) olinadi va Python xotirasida bog'lanadi.
+    """
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
     from ....infrastructure.models.group import Member
+    from ....infrastructure.models.task import TaskQueueEntry
 
     await ensure_actor_can_access_group(identity, group_id, session)
 
     tasks = await task_service.list_group_tasks(group_id)
     group = await group_service._repo.get_by_id(group_id)
     timezone_str = group.timezone if group else "Asia/Tashkent"
+
+    task_ids = [t.id for t in tasks]
+    current_member_by_task: dict[int, int] = {}
+    if task_ids:
+        entries_stmt = select(TaskQueueEntry).where(
+            TaskQueueEntry.task_id.in_(task_ids), TaskQueueEntry.position == 0
+        )
+        entries_res = await session.execute(entries_stmt)
+        current_member_by_task = {
+            e.task_id: e.member_id for e in entries_res.scalars().all()
+        }
+
+    member_ids = list(set(current_member_by_task.values()))
+    name_by_member: dict[int, str] = {}
+    if member_ids:
+        members_stmt = (
+            select(Member)
+            .options(selectinload(Member.user))
+            .where(Member.id.in_(member_ids))
+        )
+        members_res = await session.execute(members_stmt)
+        for member in members_res.scalars().all():
+            if member.user:
+                name_by_member[member.id] = member.user.full_name
+
     data = []
     for t in tasks:
-        current_entry = await task_service._queue_repo.get_current_entry(t.id)
-        current_assignee = "Hech kim"
-        if current_entry:
-            stmt = (
-                select(Member)
-                .options(selectinload(Member.user))
-                .where(Member.id == current_entry.member_id)
-            )
-            res_member = await session.execute(stmt)
-            member = res_member.scalar_one_or_none()
-            if member and member.user:
-                current_assignee = member.user.full_name
-        
+        current_member_id = current_member_by_task.get(t.id)
+        current_assignee = (
+            name_by_member.get(current_member_id, "Hech kim")
+            if current_member_id is not None
+            else "Hech kim"
+        )
+
         data.append({
             "id": t.id,
             "name": t.name,
@@ -468,25 +498,26 @@ async def get_my_tasks(
     today = get_local_today(group_timezone)
     today_start_utc = local_date_to_utc_start(today, group_timezone)
 
+    # Har bir vazifa uchun alohida so'rov o'rniga - bittasi bilan
+    # BARCHA ochiq (bugungi) assignment'larni olamiz.
+    task_ids = [t.id for t in tasks]
+    open_task_ids: set[int] = set()
+    if task_ids:
+        assignments_stmt = select(TaskAssignment.task_id).where(
+            TaskAssignment.task_id.in_(task_ids),
+            TaskAssignment.member_id == membership.id,
+            TaskAssignment.assigned_date == today_start_utc,
+            TaskAssignment.status.in_(
+                [TaskStatus.PENDING, TaskStatus.IN_PROGRESS, TaskStatus.OVERDUE]
+            ),
+        )
+        assignments_result = await session.execute(assignments_stmt)
+        open_task_ids = set(assignments_result.scalars().all())
+
     data = []
     for t in tasks:
         days_left = 0
-        assignment_stmt = (
-            select(TaskAssignment)
-            .where(
-                TaskAssignment.task_id == t.id,
-                TaskAssignment.member_id == membership.id,
-                TaskAssignment.assigned_date == today_start_utc,
-                TaskAssignment.status.in_(
-                    [TaskStatus.PENDING, TaskStatus.IN_PROGRESS, TaskStatus.OVERDUE]
-                ),
-            )
-            .limit(1)
-        )
-        assignment_result = await session.execute(assignment_stmt)
-        open_assignment = assignment_result.scalar_one_or_none()
-
-        is_active_now = open_assignment is not None
+        is_active_now = t.id in open_task_ids
         if not is_active_now and t.next_execution_date:
             next_local_date = utc_to_local_date(t.next_execution_date, group_timezone)
             days_left = (next_local_date - today).days

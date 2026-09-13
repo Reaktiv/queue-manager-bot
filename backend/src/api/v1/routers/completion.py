@@ -1,12 +1,12 @@
 """
-Presentation Layer: Vazifani rasm bilan yakunlash va guruh tasdig'i (voting) endpointlari.
+Presentation Layer: Vazifani rasm bilan yakunlash va sifat bahosi endpointlari.
 
 Bot foydalanuvchidan rasm qabul qilib, shu yerga multipart/form-data
-sifatida yuboradi. Agar guruhda ovoz bera oladigan boshqa a'zo bo'lsa,
-javobda "auto_approved: false" va guruhga yuborish uchun kerakli
-ma'lumotlar (completion_id, telegram_chat_id, ...) qaytadi - botning o'zi
-rasmni ✅/❌ tugmalar bilan guruhga yuboradi. Guruh a'zolari keyin
-`/completion/{completion_id}/vote` orqali ovoz beradi.
+sifatida yuboradi. Vazifa DARHOL tasdiqlanadi (guruh tasdig'i shart
+emas) - javobda, agar guruhda baholay oladigan boshqa a'zo bo'lsa,
+guruhga yuborish uchun kerakli ma'lumotlar (completion_id,
+telegram_chat_id, ...) qaytadi - botning o'zi rasmni 1-5 yulduz
+baholash tugmalari bilan guruhga yuboradi (`/completion/{id}/rate`).
 """
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
@@ -23,13 +23,11 @@ from ....api.deps import (
 )
 from ....services.group_service import GroupService
 from ....services.photo_completion_service import (
-    AlreadyResolvedError,
     CompletionNotFoundError,
     CompletionService,
     NotGroupMemberError,
     NotQueueOwnerError,
     PendingApprovalError,
-    SelfVoteError,
 )
 from ....services.rating_service import (
     RatingNotAllowedError,
@@ -48,11 +46,6 @@ class ApiResponse(BaseModel):
     success: bool
     data: object | None = None
     message: str | None = None
-
-
-class VoteRequest(BaseModel):
-    telegram_id: int
-    approve: bool
 
 
 class RatingRequest(BaseModel):
@@ -109,40 +102,11 @@ async def complete_task_with_photo(
     except ValueError as exc:
         return ApiResponse(success=False, message=str(exc))
 
-    if result.get("auto_approved"):
-        message = "Vazifa muvaffaqiyatli yakunlandi, navbat yangilandi"
-    else:
-        message = "Rasm qabul qilindi, guruh a'zolarining tasdig'i kutilmoqda"
-
-    return ApiResponse(success=True, data=result, message=message)
-
-
-@router.post("/{completion_id}/vote", response_model=ApiResponse)
-async def vote_completion(
-    completion_id: int,
-    payload: VoteRequest,
-    session: AsyncSession = Depends(get_session),
-    completion_service: CompletionService = Depends(get_completion_service),
-    identity: Identity = Depends(verify_bot_or_mini_app),
-):
-    await ensure_actor_owns_telegram_id(identity, payload.telegram_id, session)
-
-    try:
-        result = await completion_service.register_vote(
-            completion_id, payload.telegram_id, payload.approve
-        )
-    except CompletionNotFoundError:
-        return ApiResponse(success=False, message="Topshiriq topilmadi")
-    except AlreadyResolvedError:
-        return ApiResponse(success=False, message="Bu vazifa allaqachon hal qilingan")
-    except SelfVoteError:
-        return ApiResponse(
-            success=False, message="Siz o'zingiz bajargan vazifaga ovoz bera olmaysiz"
-        )
-    except NotGroupMemberError:
-        return ApiResponse(success=False, message="Siz bu guruh a'zosi emassiz")
-
-    return ApiResponse(success=True, data=result, message="Ovozingiz qabul qilindi")
+    return ApiResponse(
+        success=True,
+        data=result,
+        message="Vazifa muvaffaqiyatli yakunlandi, navbat yangilandi",
+    )
 
 
 @router.post("/{completion_id}/rate", response_model=ApiResponse)
@@ -154,9 +118,10 @@ async def rate_completion(
     identity: Identity = Depends(verify_bot_or_mini_app),
 ):
     """
-    Guruh a'zosi TASDIQLANGAN topshiriqqa 1-5 yulduz bilan sifat bahosi
-    qo'yadi. Bu `${completion_id}/vote` dagi tasdiqlash/rad etish ovozidan
-    ALOHIDA - u "bajarildimi?" ga, bu "qanday bajarildi?" ga javob beradi.
+    Guruh a'zosi bajarilgan topshiriqqa 1-5 yulduz bilan sifat bahosi
+    qo'yadi. Bu vazifaning bajarilishiga (navbat surilishiga) ta'sir
+    qilmaydi - u allaqachon rasm yuklangan zahoti sodir bo'lgan; bu
+    faqat "qanday bajarildi?" degan alohida sifat signali.
     """
     await ensure_actor_owns_telegram_id(identity, payload.telegram_id, session)
 

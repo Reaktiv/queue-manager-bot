@@ -105,10 +105,6 @@ def admin_task_menu_keyboard(task_id: int) -> InlineKeyboardMarkup:
     )
 
 
-
-
-
-
 def yes_no_keyboard(prefix: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -120,28 +116,12 @@ def yes_no_keyboard(prefix: str) -> InlineKeyboardMarkup:
     )
 
 
-def completion_vote_keyboard(
-    completion_id: int, yes_count: int = 0, no_count: int = 0
-) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text=f"✅ Ha ({yes_count})", callback_data=f"vote_yes:{completion_id}"
-                ),
-                InlineKeyboardButton(
-                    text=f"❌ Yo'q ({no_count})", callback_data=f"vote_no:{completion_id}"
-                ),
-            ]
-        ]
-    )
-
-
 def star_rating_keyboard(completion_id: int) -> InlineKeyboardMarkup:
     """
-    Tasdiqlangan (approved) vazifaga sifat bahosi qo'yish uchun 1-5 yulduz
-    tugmalari. ✅/❌ ovoz tugmalari o'rnini bosadi - approve/reject allaqachon
-    hal qilingan, bu endi "qanday bajarildi?" degan alohida savol.
+    Bajarilgan vazifaga sifat bahosi qo'yish uchun 1-5 yulduz tugmalari.
+    Vazifa allaqachon rasm yuklangan zahoti tasdiqlangan (guruh ovoz
+    berishi shart emas) - bu tugmalar "bajarildimi?" ga emas, "qanday
+    bajarildi?" degan alohida savolga javob beradi.
     Bir nechta kishi baho bera olishi uchun tugmalar doimiy qoladi
     (birinchi bosilgandan keyin ham yo'qolmaydi).
     Tugma matni "N⭐" ko'rinishida (emoji N marta takrorlanmaydi) - 5 ta

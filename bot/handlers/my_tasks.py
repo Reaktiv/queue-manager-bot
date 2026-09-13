@@ -13,12 +13,13 @@ from handlers.groups import get_active_group_id
 from i18n.translator import t
 from keyboards.inline import (
     ask_photo_keyboard,
-    completion_vote_keyboard,
     early_completion_confirm_keyboard,
     future_task_action_keyboard,
+    star_rating_keyboard,
     task_action_keyboard,
     turns_view_keyboard,
 )
+from keyboards.reply import MY_TASKS_BUTTON
 from services.api_client import ApiClient
 from states.fsm import CompletionStates
 
@@ -75,6 +76,7 @@ def _render_task_view(task: dict, lang: str) -> tuple[str, InlineKeyboardMarkup]
 
 
 @router.message(Command("mytasks"))
+@router.message(F.text == MY_TASKS_BUTTON)
 async def handle_my_tasks(message: Message, state: FSMContext, api_client: ApiClient) -> None:
     group_id = await get_active_group_id(state)
     lang = _lang(message.from_user)
@@ -207,36 +209,38 @@ async def handle_photo_received(message: Message, state: FSMContext, api_client:
             # foydalanuvchining tanlangan guruhi har muvaffaqiyatli rasm
             # yuborilganda o'chib ketardi. Endi alohida nom ishlatiladi.
             result_data = result.get("data") or {}
-            if result_data.get("auto_approved", True):
-                await message.answer(t("task_completed", lang=_lang(user)))
-            else:
-                await message.answer(
-                    "📤 Rasmingiz guruhga yuborildi. Guruh a'zolarining tasdig'ini kuting."
+            await message.answer(t("task_completed", lang=_lang(user)))
+
+            # Vazifa allaqachon tasdiqlangan - guruh a'zolaridan tasdiq
+            # SO'RALMAYDI. Agar guruhda baholay oladigan boshqa a'zo bo'lsa,
+            # backend shu ma'lumotlarni qaytaradi va rasm guruhga DARHOL
+            # 1-5 yulduz baholash tugmalari bilan yuboriladi - bular faqat
+            # sifat bahosi uchun, vazifaning bajarilishiga ta'sir qilmaydi.
+            chat_id = result_data.get("telegram_chat_id")
+            completion_id = result_data.get("completion_id")
+            if chat_id and completion_id:
+                task_name = result_data.get("task_name") or "Vazifa"
+                member_name = result_data.get("member_name") or user.full_name
+                info_caption = (
+                    f"✅ <b>{member_name}</b> \"{task_name}\" vazifasini bajardi!\n\n"
+                    f"⭐ Sifat bahosi uchun 1 soat vaqtingiz bor - shu vaqtdan keyin pastdagi "
+                    f"tugmalar endi baho qabul qilmaydi."
                 )
-                chat_id = result_data.get("telegram_chat_id")
-                completion_id = result_data.get("completion_id")
-                if chat_id and completion_id:
-                    task_name = result_data.get("task_name") or "Vazifa"
-                    member_name = result_data.get("member_name") or user.full_name
-                    vote_caption = (
-                        f"📷 <b>{member_name}</b> \"{task_name}\" vazifasini bajardi deb belgiladi.\n\n"
-                        f"Guruh a'zolari, tasdiqlaysizmi?"
+                if caption:
+                    info_caption += f"\n\n📝 {caption}"
+                try:
+                    await bot.send_photo(
+                        chat_id=chat_id,
+                        photo=photo.file_id,
+                        caption=info_caption,
+                        reply_markup=star_rating_keyboard(completion_id),
                     )
-                    if caption:
-                        vote_caption += f"\n\n📝 {caption}"
-                    try:
-                        await bot.send_photo(
-                            chat_id=chat_id,
-                            photo=photo.file_id,
-                            caption=vote_caption,
-                            reply_markup=completion_vote_keyboard(completion_id),
-                        )
-                    except Exception:
-                        logger.exception(
-                            "send_completion_vote_photo_failed",
-                            chat_id=chat_id,
-                            completion_id=completion_id,
-                        )
+                except Exception:
+                    logger.exception(
+                        "send_completion_photo_failed",
+                        chat_id=chat_id,
+                        completion_id=completion_id,
+                    )
         else:
             await message.answer(f"❌ Xatolik: {result.get('message')}")
     except Exception:

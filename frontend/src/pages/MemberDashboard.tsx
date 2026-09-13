@@ -26,11 +26,17 @@ interface Props {
 export function MemberDashboard({ user, group }: Props) {
   const [profileOpen, setProfileOpen] = useState(false);
   const myTasks = useAsyncData<TaskSummary[]>(
+    "my-tasks",
     () => api.getMyTasks(user.telegram_id, group.id),
     [user.telegram_id, group.id]
   );
-  const allTasks = useAsyncData<TaskSummary[]>(() => api.listTasks(group.id), [group.id]);
+  const allTasks = useAsyncData<TaskSummary[]>(
+    "group-tasks",
+    () => api.listTasks(group.id),
+    [group.id]
+  );
   const stats = useAsyncData<MemberStatistics>(
+    "member-stats",
     () => api.getMemberStatistics(group.member_id),
     [group.member_id]
   );

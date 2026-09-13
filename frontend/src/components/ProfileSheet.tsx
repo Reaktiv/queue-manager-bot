@@ -31,6 +31,7 @@ interface Props {
  */
 export function ProfileSheet({ open, onClose, memberId, fullName, role }: Props) {
   const stats = useAsyncData<MemberStatistics>(
+    "member-stats",
     memberId ? () => api.getMemberStatistics(memberId) : null,
     [memberId]
   );

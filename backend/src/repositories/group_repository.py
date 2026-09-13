@@ -176,8 +176,25 @@ class GroupRepository:
         result = await self._session.execute(stmt)
         return int(result.scalar_one())
 
+    async def count_members_for_groups(self, group_ids: list[int]) -> dict[int, int]:
+        """`count_members_in_group`ning ommaviy (batch) shakli - super admin
+        "barcha guruhlar" ro'yxati uchun N ta guruh bo'lsa N ta alohida
+        so'rov o'rniga BITTA `GROUP BY` so'rovi bilan hisoblaydi."""
+        from sqlalchemy import func
+
+        if not group_ids:
+            return {}
+
+        stmt = (
+            select(Member.group_id, func.count(Member.id))
+            .where(Member.group_id.in_(group_ids), Member.is_active.is_(True))
+            .group_by(Member.group_id)
+        )
+        result = await self._session.execute(stmt)
+        return {group_id: count for group_id, count in result.all()}
+
     async def count_other_active_members(self, group_id: int, exclude_member_id: int) -> int:
-        """Vazifani bajargan a'zodan tashqari, ovoz bera oladigan a'zolar soni."""
+        """Vazifani bajargan a'zodan tashqari, sifat bahosi bera oladigan a'zolar soni."""
         from sqlalchemy import func
 
         stmt = select(func.count(Member.id)).where(

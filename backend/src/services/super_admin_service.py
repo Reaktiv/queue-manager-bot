@@ -38,20 +38,18 @@ class SuperAdminService:
 
     async def list_all_groups_with_stats(self) -> list[dict]:
         groups = await self._group_repo.list_all_groups()
-        result = []
-        for group in groups:
-            member_count = await self._group_repo.count_members_in_group(group.id)
-            result.append(
-                {
-                    "id": group.id,
-                    "name": group.name,
-                    "member_count": member_count,
-                    "timezone": group.timezone,
-                    "is_active": group.is_active,
-                    "created_at": group.created_at.isoformat(),
-                }
-            )
-        return result
+        counts = await self._group_repo.count_members_for_groups([g.id for g in groups])
+        return [
+            {
+                "id": group.id,
+                "name": group.name,
+                "member_count": counts.get(group.id, 0),
+                "timezone": group.timezone,
+                "is_active": group.is_active,
+                "created_at": group.created_at.isoformat(),
+            }
+            for group in groups
+        ]
 
     async def list_all_users(self) -> list[dict]:
         users = await self._user_repo.list_all()
