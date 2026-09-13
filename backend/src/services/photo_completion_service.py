@@ -23,6 +23,13 @@ from ..repositories.group_repository import GroupRepository
 from ..repositories.user_repository import UserRepository
 from .notification_service import NotificationService
 from .photo_storage_service import PhotoStorageService
+from .rating_service import (
+    RatingNotAllowedError,
+    RatingService,
+    RatingWindowExpiredError,
+    SelfRatingError,
+    rating_window_closed,
+)
 from .task_service import TaskService
 from ..utils.datetime_utils import get_local_today
 
@@ -61,6 +68,7 @@ class CompletionService:
         notification_service: NotificationService,
         user_repository: UserRepository | None = None,
         vote_repository: CompletionVoteRepository | None = None,
+        rating_service: RatingService | None = None,
     ) -> None:
         self._assignment_repo = assignment_repository
         self._group_repo = group_repository
@@ -69,6 +77,7 @@ class CompletionService:
         self._notification_service = notification_service
         self._user_repo = user_repository
         self._vote_repo = vote_repository
+        self._rating_service = rating_service
 
     async def complete_with_photo(
         self,
@@ -194,6 +203,58 @@ class CompletionService:
             "eligible_total": eligible_total,
             "task_name": task.name,
             "assignee_telegram_id": assignee_user.telegram_id if assignee_user else None,
+            "assignee_name": assignee_user.full_name if assignee_user else None,
+        }
+
+    async def submit_rating(
+        self, completion_id: int, rater_telegram_id: int, stars: int
+    ) -> dict:
+        """
+        Guruh a'zosi TASDIQLANGAN (approved) topshiriqqa 1-5 yulduz bilan
+        sifat bahosi qo'yadi. Bu `register_vote` dagi ✅/❌ ovozdan alohida:
+        vote "bajarildimi?" ga, rating "qanday bajarildi?" ga javob beradi -
+        shuning uchun faqat allaqachon TASDIQLANGAN topshiriqqa baho berish
+        mumkin (hali hal qilinmagan yoki rad etilganga emas).
+        """
+        completion = await self._assignment_repo.get_completion_by_id(completion_id)
+        if completion is None:
+            raise CompletionNotFoundError()
+        if completion.approval_status != CompletionApprovalStatus.APPROVED:
+            raise RatingNotAllowedError()
+        if rating_window_closed(completion.resolved_at):
+            raise RatingWindowExpiredError()
+
+        assignment = await self._assignment_repo.get_by_id(completion.assignment_id)
+        if assignment is None:
+            raise CompletionNotFoundError()
+        task = await self._task_service.get_task(assignment.task_id)
+        if task is None:
+            raise CompletionNotFoundError()
+
+        rater_user = await self._user_repo.get_by_telegram_id(rater_telegram_id)
+        if rater_user is None:
+            raise NotGroupMemberError()
+        rater_member = await self._group_repo.get_membership(rater_user.id, task.group_id)
+        if rater_member is None or not rater_member.is_active:
+            raise NotGroupMemberError()
+        if rater_member.id == completion.member_id:
+            raise SelfRatingError()
+
+        result = await self._rating_service.record_rating(
+            completion_id=completion_id,
+            rater_member_id=rater_member.id,
+            rated_member_id=completion.member_id,
+            stars=stars,
+        )
+
+        assignee_member = await self._group_repo.get_member_by_id(completion.member_id)
+        assignee_user = (
+            await self._user_repo.get_by_id(assignee_member.user_id) if assignee_member else None
+        )
+
+        return {
+            **result,
+            "task_name": task.name,
             "assignee_name": assignee_user.full_name if assignee_user else None,
         }
 

@@ -7,13 +7,20 @@ import structlog
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
-from bot.handlers.groups import get_active_group_id
-from bot.i18n.translator import t
-from bot.keyboards.inline import completion_vote_keyboard, task_action_keyboard
-from bot.services.api_client import ApiClient
-from bot.states.fsm import CompletionStates
+from handlers.groups import get_active_group_id
+from i18n.translator import t
+from keyboards.inline import (
+    ask_photo_keyboard,
+    completion_vote_keyboard,
+    early_completion_confirm_keyboard,
+    future_task_action_keyboard,
+    task_action_keyboard,
+    turns_view_keyboard,
+)
+from services.api_client import ApiClient
+from states.fsm import CompletionStates
 
 router = Router(name="my_tasks")
 logger = structlog.get_logger()
@@ -21,6 +28,19 @@ logger = structlog.get_logger()
 
 def _lang(user) -> str:
     return (user.language_code or "uz").split("-")[0] if user else "uz"
+
+
+async def _safe_edit(message: Message, text: str, keyboard: InlineKeyboardMarkup) -> None:
+    """Xabarni tahrirlaydi; agar Telegram rad etsa (masalan, matn o'zgarmagan
+    yoki xabar juda eski bo'lsa) yangi xabar yuboradi - foydalanuvchi
+    "kutilmagan xatolik" ko'rmasligi uchun."""
+    try:
+        await message.edit_text(text, reply_markup=keyboard)
+    except Exception:
+        try:
+            await message.answer(text, reply_markup=keyboard)
+        except Exception:
+            logger.exception("mytasks_message_edit_failed")
 
 
 def _format_task_date(date_str: str | None) -> str:
@@ -36,6 +56,24 @@ def _format_task_date(date_str: str | None) -> str:
     return f"{dt.day}-{dt.strftime('%B').lower()}"
 
 
+def _future_task_text(task: dict) -> str:
+    days = task.get("days_left", 0)
+    if days == 1:
+        return f"📋 <b>{task['name']}</b> vazifasidagi navbatingizga 1 kun qoldi (Ertaga)."
+    if days % 7 == 0 and days > 0:
+        weeks = days // 7
+        return f"📋 <b>{task['name']}</b> vazifasidagi navbatingizga {weeks} hafta bor."
+    return f"📋 <b>{task['name']}</b> vazifasidagi navbatingizga hali {days} kun bor."
+
+
+def _render_task_view(task: dict, lang: str) -> tuple[str, InlineKeyboardMarkup]:
+    """Vazifaning boshlang'ich ko'rinishini (matn + tugmalar) qayta tiklaydi -
+    "orqaga" bosilganda yoki tasdiqlash rad etilganda shu holatga qaytiladi."""
+    if task.get("is_active_now", True):
+        return t("task_assigned_to_you", lang=lang, task=task["name"]), task_action_keyboard(task["id"])
+    return _future_task_text(task), future_task_action_keyboard(task["id"])
+
+
 @router.message(Command("mytasks"))
 async def handle_my_tasks(message: Message, state: FSMContext, api_client: ApiClient) -> None:
     group_id = await get_active_group_id(state)
@@ -49,35 +87,21 @@ async def handle_my_tasks(message: Message, state: FSMContext, api_client: ApiCl
     tasks = result.get("data") or []
 
     if not tasks:
-        from bot.keyboards.inline import turns_view_keyboard
         await message.answer(
             t("no_tasks", lang=lang) or "Sizda joriy vazifalar yo'q.",
             reply_markup=turns_view_keyboard()
         )
         return
 
-    for task in tasks:
-        is_active = task.get("is_active_now", True)
-        if is_active:
-            await message.answer(
-                t("task_assigned_to_you", lang=lang, task=task["name"]),
-                reply_markup=task_action_keyboard(task["id"]),
-            )
-        else:
-            days = task.get("days_left", 0)
-            if days == 1:
-                text = f"📋 <b>{task['name']}</b> vazifasidagi navbatingizga 1 kun qoldi (Ertaga)."
-            elif days % 7 == 0:
-                weeks = days // 7
-                text = f"📋 <b>{task['name']}</b> vazifasidagi navbatingizga {weeks} hafta bor."
-            else:
-                text = f"📋 <b>{task['name']}</b> vazifasidagi navbatingizga hali {days} kun bor."
+    # Har bir vazifa haqidagi ma'lumot FSM'ga keshlanadi - "orqaga"/tasdiqlash
+    # bosqichlarida qayta backend'ga murojaat qilmasdan shu yerdan matn va
+    # holatni (muddati kelganmi yoki oldinroqmi) tiklash uchun.
+    mt_tasks = {str(task["id"]): task for task in tasks}
+    await state.update_data(mt_tasks=mt_tasks)
 
-            from bot.keyboards.inline import future_task_action_keyboard
-            await message.answer(
-                text,
-                reply_markup=future_task_action_keyboard(task["id"])
-            )
+    for task in tasks:
+        text, keyboard = _render_task_view(task, lang)
+        await message.answer(text, reply_markup=keyboard)
 
 
 @router.callback_query(F.data.startswith("complete:"))
@@ -85,16 +109,77 @@ async def handle_complete_start(callback: CallbackQuery, state: FSMContext) -> N
     if callback.data is None or callback.message is None:
         return
     task_id = int(callback.data.split(":")[1])
-    await state.update_data(completing_task_id=task_id)
+    data = await state.get_data()
+    task = (data.get("mt_tasks") or {}).get(str(task_id))
+
+    if task is not None and not task.get("is_active_now", True):
+        # Muddat hali kelmagan - avval tasdiqlash so'raladi.
+        await _safe_edit(
+            callback.message,
+            f"⏳ {_future_task_text(task)}\n\nBaribir hozir bajarishni xohlaysizmi?",
+            early_completion_confirm_keyboard(task_id),
+        )
+        await callback.answer()
+        return
+
+    await _start_photo_prompt(callback, state, task_id)
+
+
+@router.callback_query(F.data.startswith("confirm_early:"))
+async def handle_confirm_early(callback: CallbackQuery, state: FSMContext) -> None:
+    if callback.data is None or callback.message is None:
+        return
+    _, task_id_str, answer = callback.data.split(":")
+    task_id = int(task_id_str)
+
+    if answer == "yes":
+        await _start_photo_prompt(callback, state, task_id)
+        return
+
+    data = await state.get_data()
+    task = (data.get("mt_tasks") or {}).get(str(task_id))
+    if task is not None:
+        text, keyboard = _render_task_view(task, _lang(callback.from_user))
+        await _safe_edit(callback.message, text, keyboard)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("cancel_complete:"))
+async def handle_cancel_complete(callback: CallbackQuery, state: FSMContext) -> None:
+    if callback.data is None or callback.message is None:
+        return
+    task_id = int(callback.data.split(":")[1])
+
+    fsm_data = await state.get_data()
+    preserved = {
+        k: v for k, v in fsm_data.items() if k.startswith("active_") or k == "mt_tasks"
+    }
+    await state.clear()
+    if preserved:
+        await state.set_data(preserved)
+
+    task = (fsm_data.get("mt_tasks") or {}).get(str(task_id))
+    if task is not None:
+        text, keyboard = _render_task_view(task, _lang(callback.from_user))
+        await _safe_edit(callback.message, text, keyboard)
+    await callback.answer("Bekor qilindi")
+
+
+async def _start_photo_prompt(callback: CallbackQuery, state: FSMContext, task_id: int) -> None:
+    await state.update_data(completing_task_id=task_id, completing_message_id=callback.message.message_id)
     await state.set_state(CompletionStates.waiting_for_photo)
-    await callback.message.answer(t("ask_photo", lang=_lang(callback.from_user)))
+    await _safe_edit(
+        callback.message,
+        t("ask_photo", lang=_lang(callback.from_user)),
+        ask_photo_keyboard(task_id),
+    )
     await callback.answer()
 
 
 @router.message(CompletionStates.waiting_for_photo, F.photo)
 async def handle_photo_received(message: Message, state: FSMContext, api_client: ApiClient, bot) -> None:
-    data = await state.get_data()
-    task_id = data.get("completing_task_id")
+    fsm_data = await state.get_data()
+    task_id = fsm_data.get("completing_task_id")
     user = message.from_user
 
     try:
@@ -115,18 +200,24 @@ async def handle_photo_received(message: Message, state: FSMContext, api_client:
         )
 
         if result.get("success"):
-            data = result.get("data") or {}
-            if data.get("auto_approved", True):
+            # DIQQAT: bu yerda avval o'zgaruvchi nomi `data` edi va yuqoridagi
+            # FSM ma'lumotini (`active_group_id` va h.k.) yashirib qo'yardi -
+            # pastdagi `finally` bloki keyin ANA SHU (API javobi) obyektidan
+            # `active_*` kalitlarni qidirardi, ular u yerda yo'q, natijada
+            # foydalanuvchining tanlangan guruhi har muvaffaqiyatli rasm
+            # yuborilganda o'chib ketardi. Endi alohida nom ishlatiladi.
+            result_data = result.get("data") or {}
+            if result_data.get("auto_approved", True):
                 await message.answer(t("task_completed", lang=_lang(user)))
             else:
                 await message.answer(
                     "📤 Rasmingiz guruhga yuborildi. Guruh a'zolarining tasdig'ini kuting."
                 )
-                chat_id = data.get("telegram_chat_id")
-                completion_id = data.get("completion_id")
+                chat_id = result_data.get("telegram_chat_id")
+                completion_id = result_data.get("completion_id")
                 if chat_id and completion_id:
-                    task_name = data.get("task_name") or "Vazifa"
-                    member_name = data.get("member_name") or user.full_name
+                    task_name = result_data.get("task_name") or "Vazifa"
+                    member_name = result_data.get("member_name") or user.full_name
                     vote_caption = (
                         f"📷 <b>{member_name}</b> \"{task_name}\" vazifasini bajardi deb belgiladi.\n\n"
                         f"Guruh a'zolari, tasdiqlaysizmi?"
@@ -153,9 +244,29 @@ async def handle_photo_received(message: Message, state: FSMContext, api_client:
             "❌ Rasmni yuklashda xatolik yuz berdi. Iltimos, qayta urinib ko'ring."
         )
     finally:
+        # Rasm qabul qilingandan keyin "🔙 Orqaga" tugmasi endi ma'nosiz -
+        # bosqich yakunlandi, shuning uchun eski so'rov xabaridan olib
+        # tashlanadi (kichik suhbat o'zini tozalaydi).
+        prompt_message_id = fsm_data.get("completing_message_id")
+        if prompt_message_id:
+            try:
+                await bot.edit_message_reply_markup(
+                    chat_id=message.chat.id, message_id=prompt_message_id, reply_markup=None
+                )
+            except Exception:
+                pass
+
         # Xatolik bo'lsa ham foydalanuvchi doim "waiting_for_photo" holatidan
-        # chiqishi kerak - aks holda /cancel qilmaguncha botga hech narsa yubora olmaydi.
-        await state.set_data({k: v for k, v in data.items() if k.startswith("active_")})
+        # chiqishi kerak - aks holda /cancel qilmaguncha botga hech narsa yubora
+        # olmaydi. `set_data()` ning o'zi FSM HOLATINI o'zgartirmaydi - faqat
+        # ma'lumotni almashtiradi - shuning uchun avval `clear()` chaqiriladi,
+        # xuddi admin_tasks.py/registration.py/common.py dagi kabi.
+        preserved = {
+            k: v for k, v in fsm_data.items() if k.startswith("active_") or k == "mt_tasks"
+        }
+        await state.clear()
+        if preserved:
+            await state.set_data(preserved)
 
 
 @router.message(CompletionStates.waiting_for_photo, F.text)
@@ -168,7 +279,14 @@ async def handle_turns(message: Message, state: FSMContext, api_client: ApiClien
     group_id = await get_active_group_id(state)
     lang = _lang(message.from_user)
     if group_id is None:
-        await message.answer(t("no_active_group", lang=lang) if "no_active_group" in t else "⚠️ Avval faol guruhni tanlang: /mygroups")
+        # Ilgari bu yerda `"no_active_group" in t` tekshiruvi bor edi - `t`
+        # tarjima FUNKSIYASI (lug'at emas), shuning uchun `in` operatori
+        # `TypeError: argument of type 'function' is not iterable` bilan
+        # yiqilardi va foydalanuvchi faol guruhsiz /turns bossa "kutilmagan
+        # xatolik" ko'rardi. `no_active_group` kaliti tarjimalarda mavjud
+        # (translator.py), shuning uchun `t()` ni to'g'ridan-to'g'ri chaqirish
+        # kifoya - xuddi shu faylning `handle_my_tasks`idagi kabi.
+        await message.answer(t("no_active_group", lang=lang))
         return
 
     result = await api_client.list_group_tasks(group_id)

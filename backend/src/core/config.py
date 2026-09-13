@@ -12,8 +12,25 @@ from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+# Yagona .env - loyiha ildizida. Ilgari `backend/.env` ham bo'lgan va ikkalasi
+# qo'lda sinxronlangan; natijada backend'dagi nusxada BOT_TOKEN placeholder
+# bo'lib qolib, Mini App initData imzosini tekshirib bo'lmay qolgan edi.
+# Endi manba bitta. Lokal farqlar (masalan POSTGRES_PORT) environment
+# o'zgaruvchisi orqali beriladi - ular env_file'dan ustun turadi.
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+_ROOT_ENV_FILE = _PROJECT_ROOT / ".env"
+
+# `.env.local` - faqat shu mashinaga tegishli farqlar (masalan, Docker'dagi
+# postgres host portga map qilingani uchun POSTGRES_PORT=55432). Git'ga
+# tushmaydi va `.env`dagi qiymatlarni ustidan yozadi. Docker ichida bu fayl
+# yo'q, u yerda qiymatlar environment orqali keladi.
+_LOCAL_ENV_FILE = _PROJECT_ROOT / ".env.local"
+
+
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=(_ROOT_ENV_FILE, _LOCAL_ENV_FILE), extra="ignore"
+    )
 
     # --- Ilova ---
     APP_NAME: str = "QueueManagerBot"
@@ -25,6 +42,13 @@ class Settings(BaseSettings):
     APP_ENV: str = Field(default="production")
     DEBUG: bool = Field(default=False)
     APP_TIMEZONE: str = "Asia/Tashkent"
+
+    # Auth tekshiruvlarini butunlay o'chiradi (initData imzosi, JWT, bot
+    # secret'i). Ilgari bu `APP_ENV == "development"` ga bog'langan edi -
+    # ya'ni lokal ishlayotgan ilova tunnel orqali internetga chiqarilganda
+    # har qanday odam Super Admin bo'lib kira olardi. Endi bu alohida,
+    # ataylab yoqiladigan bayroq va default'i - o'chiq.
+    DEV_AUTH_BYPASS: bool = Field(default=False)
     EMBEDDED_SCHEDULER_ENABLED: bool = Field(default=True)
 
     # --- CORS ---

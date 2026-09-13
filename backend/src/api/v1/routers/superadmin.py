@@ -88,3 +88,17 @@ async def list_error_logs(
 ):
     data = await service.list_recent_error_logs()
     return ApiResponse(success=True, data=data)
+
+
+@router.delete("/logs", response_model=ApiResponse)
+async def clear_error_logs(
+    admin: CurrentUser = Depends(require_super_admin),
+    service: SuperAdminService = Depends(get_super_admin_service),
+):
+    """Barcha xato yozuvlarini o'chiradi. Qaytarib bo'lmaydigan amal."""
+    deleted_count = await service.clear_error_logs(admin.user_id)
+    return ApiResponse(
+        success=True,
+        data={"deleted_count": deleted_count},
+        message=f"{deleted_count} ta yozuv o'chirildi",
+    )

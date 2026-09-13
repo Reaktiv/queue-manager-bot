@@ -9,8 +9,8 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
-from bot.keyboards.inline import group_selection_keyboard
-from bot.services.api_client import ApiClient
+from keyboards.inline import group_selection_keyboard
+from services.api_client import ApiClient
 
 logger = structlog.get_logger()
 router = Router(name="groups")

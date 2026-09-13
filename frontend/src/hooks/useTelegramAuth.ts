@@ -1,19 +1,12 @@
 import { useEffect, useState } from "react";
 import { api, setTokens } from "../api/client";
 import type { AuthUser } from "../types";
-
-declare global {
-  interface Window {
-    Telegram?: {
-      WebApp: {
-        initData: string;
-        ready: () => void;
-        expand: () => void;
-        colorScheme: "light" | "dark";
-      };
-    };
-  }
-}
+// `Window.Telegram` global e'loni endi shu yerda - to'liqroq shakl bilan
+// (viewport, BackButton, HapticFeedback, onEvent). Ilgari u shu faylda
+// qisqartirilgan holda turardi; ikki joyda e'lon qilish tip to'qnashuvi
+// bergani uchun yagona manbaga ko'chirildi. Runtime xatti-harakati
+// o'zgarmagan.
+import "../types/telegram";
 
 interface AuthState {
   loading: boolean;

@@ -5,6 +5,8 @@ Autentifikatsiya bilan bog'liq dependency'lar:
 - Guruh ichida admin ekanligini tekshirish
 """
 
+import secrets
+
 from fastapi import Header, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,7 +22,7 @@ async def verify_internal_secret(x_internal_secret: str = Header(default="")) ->
     Faqat bizning Telegram bot xizmatimiz chaqira oladigan endpointlar uchun.
     Bot har bir so'rovga `X-Internal-Secret` headerini qo'shadi.
     """
-    if x_internal_secret != settings.BOT_INTERNAL_SECRET:
+    if not secrets.compare_digest(x_internal_secret, settings.BOT_INTERNAL_SECRET):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Ichki so'rov ruxsatnomasi noto'g'ri",
@@ -44,7 +46,8 @@ async def verify_bot_or_mini_app(
     - Telegram bot -> `X-Internal-Secret` yoki `X-Bot-Secret` header orqali
     - React Mini App -> `Authorization: Bearer <JWT>` orqali
 
-    Development (Lokal test) muhitida tekshiruv avtomatik o'tkazib yuboriladi.
+    `DEV_AUTH_BYPASS=true` bo'lgandagina tekshiruv o'tkazib yuboriladi
+    (faqat lokal test uchun - tunnel ochiq bo'lsa hech qachon yoqmang).
 
     Qaytadi: `Identity` - chaqiruvchi bot ekanligini yoki JWT orqali kelgan
     aniq foydalanuvchi (user_id) ekanligini bildiradi. Router'lar shu
@@ -53,12 +56,15 @@ async def verify_bot_or_mini_app(
     haqiqiy chaqiruvchi bir xil ekanligini tekshiradi (aks holda boshqa
     foydalanuvchi nomidan amal bajarish - IDOR - mumkin bo'lib qolardi).
     """
-    # 🔴 LOKAL MUHIT UCHUN: Test jarayonida 401 xatolik bermasligi uchun chetlab o'tamiz
-    if settings.APP_ENV == "development":
+    if settings.DEV_AUTH_BYPASS:
         return Identity(is_bot=True)
 
-    # 1. Bot tekshiruvi (Ikkala xil header nomini ham tekshiramiz)
-    if x_internal_secret == settings.BOT_INTERNAL_SECRET or x_bot_secret == settings.BOT_INTERNAL_SECRET:
+    # 1. Bot tekshiruvi (Ikkala xil header nomini ham tekshiramiz).
+    # compare_digest - taqqoslash vaqti secret'ning to'g'ri qismi uzunligiga
+    # bog'liq bo'lib qolmasligi uchun.
+    if secrets.compare_digest(x_internal_secret, settings.BOT_INTERNAL_SECRET) or secrets.compare_digest(
+        x_bot_secret, settings.BOT_INTERNAL_SECRET
+    ):
         return Identity(is_bot=True)
 
     # 2. Mini App (JWT Token) tekshiruvi
@@ -124,7 +130,7 @@ async def get_current_user(authorization: str = Header(default="")) -> CurrentUs
     """Mini App so'rovlaridan JWT'ni o'qiydi (`Authorization: Bearer <token>`)."""
 
     if not authorization.startswith("Bearer "):
-        if settings.APP_ENV == "development":
+        if settings.DEV_AUTH_BYPASS:
             return CurrentUser(user_id=1, is_super_admin=True)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token topilmadi")
 
@@ -132,7 +138,7 @@ async def get_current_user(authorization: str = Header(default="")) -> CurrentUs
     try:
         payload = decode_token(token, expected_type="access")
     except TokenError as exc:
-        if settings.APP_ENV == "development":
+        if settings.DEV_AUTH_BYPASS:
             return CurrentUser(user_id=1, is_super_admin=True)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
 

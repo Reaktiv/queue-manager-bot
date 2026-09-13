@@ -1,9 +1,21 @@
-import type { ApiResponse } from "../types";
+import type {
+  ApiResponse,
+  ErrorLog,
+  GroupSummary,
+  LoginData,
+  MemberStatistics,
+  MemberSummary,
+  QueueEntry,
+  SuperAdminGroupSummary,
+  SuperAdminUserSummary,
+  SystemStats,
+  TaskSummary,
+} from "../types";
 
 // Bo'sh qiymat = joriy origin (frontend qaysi tunnel/domenda ochilgan bo'lsa,
 // so'rovlar ham o'sha yerga, /api orqali ketadi - dev serverdagi proxy yoki
 // productiondagi nginx uni backend'ga yo'naltiradi).
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || "https://tied-shades-continuously-travels.trycloudflare.com";
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 
 let accessToken: string | null = null;
 let refreshToken: string | null = null;
@@ -11,10 +23,6 @@ let refreshToken: string | null = null;
 export function setTokens(access: string, refresh: string) {
   accessToken = access;
   refreshToken = refresh;
-}
-
-export function getAccessToken() {
-  return accessToken;
 }
 
 async function request<T>(
@@ -31,7 +39,12 @@ async function request<T>(
     headers["Authorization"] = `Bearer ${accessToken}`;
   }
 
-  const response = await fetch(`${BASE_URL}${path}`, { ...options, headers });
+  let response: Response;
+  try {
+    response = await fetch(`${BASE_URL}${path}`, { ...options, headers });
+  } catch {
+    return { success: false, data: null, message: "Serverga ulanib bo'lmadi" } as ApiResponse<T>;
+  }
 
   if (response.status === 401 && retry && refreshToken) {
     const refreshed = await refreshAccessToken();
@@ -40,22 +53,96 @@ async function request<T>(
     }
   }
 
-  return (await response.json()) as ApiResponse<T>;
+  // Javob JSON bo'lmasligi mumkin: tunnel/proxy o'z HTML sahifasini qaytarsa
+  // (masalan ngrok'ning ogohlantirish sahifasi) yoki 502 bo'lsa. Bunda
+  // `response.json()` istisno tashlaydi va butun ekran qotib qolardi.
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    return {
+      success: false,
+      data: null,
+      message: `Server noto'g'ri javob qaytardi (HTTP ${response.status})`,
+    } as ApiResponse<T>;
+  }
+
+  return normalize<T>(body, response.status);
 }
 
-async function refreshAccessToken(): Promise<boolean> {
-  if (!refreshToken) return false;
+/*
+ * Backend ikki xil shaklda javob qaytaradi:
+ *
+ *   1. Router'lar - {success, data, message}  (bizning konvert)
+ *   2. FastAPI HTTPException - {detail: "..."}  (401/403)
+ *      va validatsiya xatolari - {detail: [{msg, loc}, ...]}  (422)
+ *
+ * Ilgari bu yerda faqat `response.json()` qaytarilardi, ya'ni ikkinchi
+ * shakl uchun `success` `undefined` bo'lib qolardi (noto'g'ri deb
+ * qabul qilinardi - to'g'ri) LEKIN `message` ham `undefined` bo'lardi.
+ * Natijada backend aniq aytgan sabab - masalan "Bu amalni faqat guruh
+ * admini bajara oladi" - tashlab yuborilib, foydalanuvchiga umumiy
+ * "O'chirib bo'lmadi" ko'rsatilardi.
+ *
+ * Endi `detail` xabarga ko'chiriladi. API shartnomasi o'zgarmaydi -
+ * chaqiruvchilar avvalgidek {success, data, message} oladi.
+ */
+function normalize<T>(body: unknown, status: number): ApiResponse<T> {
+  if (body && typeof body === "object" && "success" in body) {
+    return body as ApiResponse<T>;
+  }
+
+  const detail = (body as { detail?: unknown } | null)?.detail;
+
+  let message: string | null = null;
+  if (typeof detail === "string") {
+    message = detail;
+  } else if (Array.isArray(detail)) {
+    // 422: Pydantic validatsiya xatolari ro'yxati
+    const first = detail[0] as { msg?: string } | undefined;
+    message = first?.msg ?? null;
+  }
+
+  return {
+    success: false,
+    data: null,
+    message: message ?? `So'rov bajarilmadi (HTTP ${status})`,
+  } as ApiResponse<T>;
+}
+
+/*
+ * Bir vaqtda bir nechta so'rov 401 olishi mumkin (masalan MemberDashboard
+ * uchta so'rovni parallel yuboradi). Ilgari har biri alohida refresh
+ * so'rovi yuborardi - ya'ni bitta token yangilash o'rniga uchta, va ular
+ * bir-birining natijasini ustiga yozishi mumkin edi. Endi navbatdagi
+ * chaqiruvlar ayni bitta so'rovni kutadi.
+ */
+let refreshInFlight: Promise<boolean> | null = null;
+
+function refreshAccessToken(): Promise<boolean> {
+  if (!refreshToken) return Promise.resolve(false);
+  if (!refreshInFlight) {
+    refreshInFlight = doRefresh().finally(() => {
+      refreshInFlight = null;
+    });
+  }
+  return refreshInFlight;
+}
+
+async function doRefresh(): Promise<boolean> {
   try {
     const response = await fetch(`${BASE_URL}/api/v1/auth/refresh`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refresh_token: refreshToken }),
     });
-    const body = await response.json();
-    if (body.success) {
+    const body = (await response.json()) as ApiResponse<{ access_token: string }>;
+    if (body.success && body.data?.access_token) {
       accessToken = body.data.access_token;
       return true;
     }
+    // Refresh token ham yaroqsiz - qayta urinishning ma'nosi yo'q
+    refreshToken = null;
   } catch {
     // jim tarzda muvaffaqiyatsiz - foydalanuvchi qayta login qilishi kerak bo'ladi
   }
@@ -64,22 +151,22 @@ async function refreshAccessToken(): Promise<boolean> {
 
 export const api = {
   loginWithTelegram: (initData: string) =>
-    request<{ access_token: string; refresh_token: string; user: import("../types").AuthUser }>(
+    request<LoginData>(
       "/api/v1/auth/telegram",
       { method: "POST", body: JSON.stringify({ init_data: initData }) }
     ),
 
   listMyGroups: (telegramId: number) =>
-    request<import("../types").GroupSummary[]>(`/api/v1/groups/user/${telegramId}`),
+    request<GroupSummary[]>(`/api/v1/groups/user/${telegramId}`),
 
   listMembers: (groupId: number) =>
-    request<import("../types").MemberSummary[]>(`/api/v1/groups/${groupId}/members`),
+    request<MemberSummary[]>(`/api/v1/groups/${groupId}/members`),
 
   listTasks: (groupId: number) =>
-    request<import("../types").TaskSummary[]>(`/api/v1/tasks/group/${groupId}`),
+    request<TaskSummary[]>(`/api/v1/tasks/group/${groupId}`),
 
   getQueuePreview: (taskId: number) =>
-    request<import("../types").QueueEntry[]>(`/api/v1/tasks/${taskId}/queue/preview`),
+    request<QueueEntry[]>(`/api/v1/tasks/${taskId}/queue/preview`),
 
   createTask: (payload: {
     telegram_id: number;
@@ -131,21 +218,21 @@ export const api = {
     ),
 
   getMemberStatistics: (memberId: number) =>
-    request<import("../types").MemberStatistics>(`/api/v1/statistics/member/${memberId}`),
+    request<MemberStatistics>(`/api/v1/statistics/member/${memberId}`),
 
   getMyTasks: (telegramId: number, groupId: number) =>
-    request<import("../types").TaskSummary[]>(
+    request<TaskSummary[]>(
       `/api/v1/tasks/member/${telegramId}?group_id=${groupId}`
     ),
 
   // --- Super Admin ---
   listAllGroups: () =>
-    request<import("../types").SuperAdminGroupSummary[]>("/api/v1/superadmin/groups"),
+    request<SuperAdminGroupSummary[]>("/api/v1/superadmin/groups"),
 
   listAllUsers: () =>
-    request<import("../types").SuperAdminUserSummary[]>("/api/v1/superadmin/users"),
+    request<SuperAdminUserSummary[]>("/api/v1/superadmin/users"),
 
-  getSystemStats: () => request<import("../types").SystemStats>("/api/v1/superadmin/stats"),
+  getSystemStats: () => request<SystemStats>("/api/v1/superadmin/stats"),
 
   setMaintenanceMode: (enabled: boolean) =>
     request<null>("/api/v1/superadmin/maintenance-mode", {
@@ -165,5 +252,14 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
-  listErrorLogs: () => request<import("../types").ErrorLog[]>("/api/v1/superadmin/logs"),
+  listErrorLogs: () => request<ErrorLog[]>("/api/v1/superadmin/logs"),
+
+  /*
+   * Yulduz bahosi (rate) endpointi ATAYLAB shu yerda yo'q: baholash bot
+   * ichida, guruh chatidagi inline tugmalar orqali sodir bo'ladi
+   * (bot/handlers/ratings.py) - Mini App'da alohida baholash amali yo'q,
+   * shuning uchun ishlatilmaydigan API klient metodini qo'shmaymiz.
+   */
+  clearErrorLogs: () =>
+    request<{ deleted_count: number }>("/api/v1/superadmin/logs", { method: "DELETE" }),
 };

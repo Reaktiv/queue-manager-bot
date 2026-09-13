@@ -30,7 +30,10 @@ def validate_init_data(init_data: str, max_age_seconds: int = 86400) -> dict:
     Raises:
         InvalidInitDataError: hash mos kelmasa yoki muddati o'tgan bo'lsa.
     """
-    if settings.APP_ENV == "development":
+    # DIQQAT: bu tarmoq imzoni umuman tekshirmaydi - ya'ni har kim ixtiyoriy
+    # `user` yuborib, istalgan odam (jumladan Super Admin) nomidan kira oladi.
+    # Faqat imzosiz lokal test uchun; tunnel ochiq bo'lganda hech qachon yoqmang.
+    if settings.DEV_AUTH_BYPASS:
         try:
             parsed = dict(parse_qsl(init_data, strict_parsing=True))
             user_raw = parsed.get("user")
@@ -46,7 +49,17 @@ def validate_init_data(init_data: str, max_age_seconds: int = 86400) -> dict:
             "language_code": "uz",
         }
 
-    parsed = dict(parse_qsl(init_data, strict_parsing=True))
+    if not settings.BOT_TOKEN:
+        # Bu bo'lmasa quyida hash har doim mos kelmaydi va sabab
+        # "Imzo mos kelmadi" bo'lib ko'rinadi - aslida sozlama yetishmaydi.
+        raise InvalidInitDataError(
+            "BOT_TOKEN sozlanmagan - initData imzosini tekshirib bo'lmaydi"
+        )
+
+    try:
+        parsed = dict(parse_qsl(init_data, strict_parsing=True))
+    except ValueError as exc:
+        raise InvalidInitDataError("initData formati buzuq") from exc
 
     received_hash = parsed.pop("hash", None)
     if not received_hash:
@@ -60,7 +73,10 @@ def validate_init_data(init_data: str, max_age_seconds: int = 86400) -> dict:
     if not hmac.compare_digest(computed_hash, received_hash):
         raise InvalidInitDataError("Imzo (hash) mos kelmadi - ma'lumot ishonchsiz")
 
-    auth_date = int(parsed.get("auth_date", 0))
+    try:
+        auth_date = int(parsed.get("auth_date", 0))
+    except ValueError as exc:
+        raise InvalidInitDataError("auth_date qiymati noto'g'ri") from exc
     if time.time() - auth_date > max_age_seconds:
         raise InvalidInitDataError("initData muddati o'tgan")
 
@@ -68,4 +84,7 @@ def validate_init_data(init_data: str, max_age_seconds: int = 86400) -> dict:
     if not user_raw:
         raise InvalidInitDataError("user maydoni topilmadi")
 
-    return json.loads(user_raw)
+    try:
+        return json.loads(user_raw)
+    except json.JSONDecodeError as exc:
+        raise InvalidInitDataError("user maydoni JSON sifatida o'qilmadi") from exc

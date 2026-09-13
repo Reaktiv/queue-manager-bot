@@ -47,8 +47,28 @@ def task_action_keyboard(task_id: int) -> InlineKeyboardMarkup:
 def future_task_action_keyboard(task_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Oldindan bajarish", callback_data=f"complete:{task_id}")],
             [InlineKeyboardButton(text="👀 Navbatni ko'rish", callback_data=f"preview:{task_id}")],
             [InlineKeyboardButton(text="👥 Hozirgi navbatlar", callback_data="view_turns")],
+        ]
+    )
+
+
+def early_completion_confirm_keyboard(task_id: int) -> InlineKeyboardMarkup:
+    """Muddat hali kelmagan vazifani bajarishni tasdiqlash so'raladi."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Ha, bajaraman", callback_data=f"confirm_early:{task_id}:yes")],
+            [InlineKeyboardButton(text="🔙 Orqaga", callback_data=f"confirm_early:{task_id}:no")],
+        ]
+    )
+
+
+def ask_photo_keyboard(task_id: int) -> InlineKeyboardMarkup:
+    """Rasm so'ralayotganda foydalanuvchi orqaga qaytib fikridan qaytishi mumkin."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Orqaga", callback_data=f"cancel_complete:{task_id}")],
         ]
     )
 
@@ -61,12 +81,25 @@ def turns_view_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def confirm_keyboard(
+    yes_callback_data: str, back_callback_data: str, yes_text: str = "✅ Ha"
+) -> InlineKeyboardMarkup:
+    """Har qanday amaldan oldin bitta tasdiqlash so'rash uchun umumiy
+    klaviatura: "Ha" va "Orqaga" tugmalari."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=yes_text, callback_data=yes_callback_data)],
+            [InlineKeyboardButton(text="🔙 Orqaga", callback_data=back_callback_data)],
+        ]
+    )
+
+
 def admin_task_menu_keyboard(task_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="👀 Navbat", callback_data=f"preview:{task_id}")],
             [InlineKeyboardButton(text="⏭ Skip", callback_data=f"admin_skip:{task_id}")],
-            [InlineKeyboardButton(text="🔄 Swap", callback_data=f"admin_swap_start:{task_id}")],
+            [InlineKeyboardButton(text="🔄 Navbat tartibi", callback_data=f"admin_swap_start:{task_id}")],
             [InlineKeyboardButton(text="⏰ Eslatma sozlamalari", callback_data=f"edit_reminder_start:{task_id}")],
         ]
     )
@@ -102,6 +135,24 @@ def completion_vote_keyboard(
             ]
         ]
     )
+
+
+def star_rating_keyboard(completion_id: int) -> InlineKeyboardMarkup:
+    """
+    Tasdiqlangan (approved) vazifaga sifat bahosi qo'yish uchun 1-5 yulduz
+    tugmalari. ✅/❌ ovoz tugmalari o'rnini bosadi - approve/reject allaqachon
+    hal qilingan, bu endi "qanday bajarildi?" degan alohida savol.
+    Bir nechta kishi baho bera olishi uchun tugmalar doimiy qoladi
+    (birinchi bosilgandan keyin ham yo'qolmaydi).
+    Tugma matni "N⭐" ko'rinishida (emoji N marta takrorlanmaydi) - 5 ta
+    tugma bir qatorga sig'ganda ham (masalan tor mobil ekranda) Telegram
+    matnni "..." bilan qirqib qo'ymasligi uchun.
+    """
+    buttons = [
+        InlineKeyboardButton(text=f"{stars}⭐", callback_data=f"rate:{completion_id}:{stars}")
+        for stars in range(1, 6)
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=[buttons[:3], buttons[3:]])
 
 
 def member_selection_keyboard(members: list[dict], prefix: str) -> InlineKeyboardMarkup:

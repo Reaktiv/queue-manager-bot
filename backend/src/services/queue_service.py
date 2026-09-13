@@ -50,7 +50,22 @@ class QueueService:
     async def admin_swap(self, task_id: int, member_id_a: int, member_id_b: int) -> None:
         await self._queue_repo.swap_members(task_id, member_id_a, member_id_b)
 
+    async def admin_reorder(self, task_id: int, member_ids_in_order: list[int]) -> None:
+        """Admin butun navbat tartibini (barcha a'zolarni) qayta belgilaydi.
+        Qulf (is_locked) yangi boshdagi a'zoga o'tkaziladi - xuddi
+        `admin_skip`/`complete_and_advance` dagi kabi."""
+        current = await self._queue_repo.get_current_entry(task_id)
+        if current:
+            await self._queue_repo.unlock_entry(current.id)
+
+        await self._queue_repo.set_order(task_id, member_ids_in_order)
+        await self.lock_current_turn(task_id)
+
     async def preview_queue(self, task_id: int) -> list:
         """Joriy, keyingi va undan keyingi a'zolarni ko'rsatish uchun."""
         entries = await self._queue_repo.get_queue_for_task(task_id)
         return entries[:3]
+
+    async def get_full_queue(self, task_id: int) -> list:
+        """Butun navbatni tartib bo'yicha qaytaradi (reorder UI uchun)."""
+        return await self._queue_repo.get_queue_for_task(task_id)

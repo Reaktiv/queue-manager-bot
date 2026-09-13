@@ -11,6 +11,11 @@ DEFAULT_ZONEINFO = ZoneInfo(DEFAULT_TIMEZONE)
 
 
 def get_timezone(timezone_str: str | None) -> ZoneInfo:
+    try:
+        if timezone_str:
+            return ZoneInfo(timezone_str)
+    except Exception:
+        pass
     return DEFAULT_ZONEINFO
 
 

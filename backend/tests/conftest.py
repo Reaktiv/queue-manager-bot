@@ -11,20 +11,32 @@ har bir testga yangi event loop yaratadi. Session-scoped engine ishlatilsa,
 """
 
 import os
+import sys
+from pathlib import Path
+
 from dotenv import load_dotenv
 
-# Load root .env
-load_dotenv(dotenv_path="../.env")
+# Loyiha ildizi: .../queue-manager-bot (conftest -> tests -> backend -> ildiz).
+# Ilgari bu yerda `load_dotenv("../.env")` va `from backend.src...` importi
+# bor edi - ikkalasi ham pytest qaysi papkadan chaqirilganiga bog'liq edi,
+# shuning uchun `backend/` ichidan `pytest` ishlamas edi.
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
-# Force APP_ENV to testing for test runs to prevent bypassing auth logic
+load_dotenv(PROJECT_ROOT / ".env")
+load_dotenv(PROJECT_ROOT / ".env.local", override=True)
+
+# Testda auth chetlab o'tilmasin
 os.environ["APP_ENV"] = "testing"
+os.environ["DEV_AUTH_BYPASS"] = "false"
 
 # MUHIM: `src.core.config.settings` import qilinishidan OLDIN environment
 # o'zgaruvchilarini o'rnatamiz, aks holda production default'lar ishlatiladi.
-os.environ.setdefault("POSTGRES_HOST", "localhost")
-os.environ.setdefault("POSTGRES_USER", "postgres")
-os.environ.setdefault("POSTGRES_PASSWORD", "0980")
-os.environ.setdefault("POSTGRES_DB", "qmb_test_db")
+# POSTGRES_* qiymatlari .env/.env.local dan keladi (yuqorida yuklandi), shuning
+# uchun test bazasi ham ishchi baza bilan bir xil serverda bo'ladi. Faqat
+# baza NOMI boshqacha - ishchi ma'lumotlar hech qachon o'chirilmasligi uchun.
+os.environ["POSTGRES_DB"] = "qmb_test_db"
 os.environ.setdefault("JWT_SECRET_KEY", "test_secret_for_pytest")
 os.environ.setdefault("BOT_TOKEN", "test_bot_token")
 os.environ.setdefault("BOT_INTERNAL_SECRET", "test_internal_secret_for_pytest")
@@ -37,15 +49,33 @@ from sqlalchemy.pool import NullPool
 from backend.src.infrastructure.db.session import Base
 
 db_user = os.environ.get("POSTGRES_USER", "postgres")
-db_pass = os.environ.get("POSTGRES_PASSWORD", "0980")
+db_pass = os.environ.get("POSTGRES_PASSWORD", "")
 db_host = os.environ.get("POSTGRES_HOST", "localhost")
 db_port = os.environ.get("POSTGRES_PORT", "5432")
 TEST_DATABASE_URL = f"postgresql+asyncpg://{db_user}:{db_pass}@{db_host}:{db_port}/qmb_test_db"
+_ADMIN_DATABASE_URL = f"postgresql+asyncpg://{db_user}:{db_pass}@{db_host}:{db_port}/postgres"
+
+
+async def _ensure_test_database() -> None:
+    """`qmb_test_db` yo'q bo'lsa yaratadi - aks holda birinchi test
+    "database does not exist" bilan yiqiladi va sababi tushunarsiz bo'ladi."""
+    import asyncpg
+
+    conn = await asyncpg.connect(
+        user=db_user, password=db_pass, host=db_host, port=int(db_port), database="postgres"
+    )
+    try:
+        exists = await conn.fetchval("SELECT 1 FROM pg_database WHERE datname = $1", "qmb_test_db")
+        if not exists:
+            await conn.execute('CREATE DATABASE "qmb_test_db"')
+    finally:
+        await conn.close()
 
 
 @pytest_asyncio.fixture
 async def engine():
     """Har bir test o'z engine'ini oladi - shu testning event loop'iga bog'lanadi."""
+    await _ensure_test_database()
     test_engine = create_async_engine(
         TEST_DATABASE_URL,
         echo=False,

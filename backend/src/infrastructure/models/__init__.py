@@ -9,6 +9,7 @@ from .group import Group, Member, MemberRole
 from .settings import SystemLog, SystemSetting
 from .task import (
     CompletionApprovalStatus,
+    CompletionRating,
     CompletionVote,
     Penalty,
     ScheduleType,
@@ -24,6 +25,7 @@ __all__ = [
     "AuditLog",
     "NotificationTemplate",
     "CompletionApprovalStatus",
+    "CompletionRating",
     "CompletionVote",
     "Group",
     "Member",

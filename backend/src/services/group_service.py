@@ -8,7 +8,11 @@ Muhim qoidalar:
 """
 
 from ..infrastructure.models.group import Group, Member, MemberRole
-from ..repositories.group_repository import DuplicateActiveMembershipError, GroupRepository
+from ..repositories.group_repository import (
+    DuplicateActiveMembershipError,
+    DuplicateGroupChatIdError as RepoDuplicateGroupChatIdError,
+    GroupRepository,
+)
 from ..repositories.task_repository import TaskRepository
 from ..repositories.queue_repository import QueueRepository
 from ..utils.invite_code import generate_invite_code
@@ -20,6 +24,10 @@ class AlreadyMemberError(Exception):
 
 class InvalidInviteCodeError(Exception):
     """Taklif kodi topilmadi yoki guruh faol emas."""
+
+
+class DuplicateGroupChatIdError(Exception):
+    """Berilgan Telegram group ID allaqachon boshqa guruhga bog'langan."""
 
 
 class MemberNotFoundError(Exception):
@@ -57,13 +65,17 @@ class GroupService:
         else:
             raise RuntimeError("Noyob taklif kodi generatsiya qilinmadi, qaytadan urinib ko'ring")
 
-        group = await self._repo.create(
-            name=name,
-            invite_code=code,
-            created_by_user_id=created_by_user_id,
-            timezone=timezone,
-            telegram_chat_id=telegram_chat_id,
-        )
+        try:
+            group = await self._repo.create(
+                name=name,
+                invite_code=code,
+                created_by_user_id=created_by_user_id,
+                timezone=timezone,
+                telegram_chat_id=telegram_chat_id,
+            )
+        except RepoDuplicateGroupChatIdError as exc:
+            raise DuplicateGroupChatIdError() from exc
+
         # Yaratuvchi avtomatik admin bo'ladi
         await self._repo.add_member(
             user_id=created_by_user_id, group_id=group.id, role=MemberRole.ADMIN
@@ -99,6 +111,12 @@ class GroupService:
 
     async def get_group_by_invite_code(self, invite_code: str) -> Group | None:
         return await self._repo.get_by_invite_code(invite_code)
+
+    async def set_telegram_chat_id(self, group_id: int, telegram_chat_id: int) -> None:
+        try:
+            await self._repo.set_telegram_chat_id(group_id, telegram_chat_id)
+        except RepoDuplicateGroupChatIdError as exc:
+            raise DuplicateGroupChatIdError() from exc
 
     async def get_membership(self, user_id: int, group_id: int):
         return await self._repo.get_membership(user_id, group_id)

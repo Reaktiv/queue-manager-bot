@@ -120,3 +120,14 @@ class SuperAdminService:
             }
             for log in logs
         ]
+
+    async def clear_error_logs(self, actor_user_id: int) -> int:
+        """Barcha xato yozuvlarini o'chiradi. Qaytarib bo'lmaydigan amal -
+        kim va qachon bajarganini audit_logs'ga yozib qo'yamiz."""
+        deleted_count = await self._settings_repo.clear_logs()
+        await self._audit_repo.log(
+            action="error_logs_cleared",
+            user_id=actor_user_id,
+            details={"deleted_count": deleted_count},
+        )
+        return deleted_count

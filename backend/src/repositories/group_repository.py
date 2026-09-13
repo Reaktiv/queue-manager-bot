@@ -2,6 +2,8 @@
 Repository Layer: Group va Member bilan ishlash.
 """
 
+from decimal import Decimal
+
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +14,10 @@ from ..infrastructure.models.group import Group, Member, MemberRole
 
 class DuplicateActiveMembershipError(Exception):
     """Foydalanuvchi shu guruhda allaqachon faol a'zolikka ega (DB unique constraint)."""
+
+
+class DuplicateGroupChatIdError(Exception):
+    """Berilgan telegram_chat_id allaqachon boshqa guruhga bog'langan (DB unique constraint)."""
 
 
 class GroupRepository:
@@ -42,8 +48,28 @@ class GroupRepository:
             timezone=timezone,
         )
         self._session.add(group)
-        await self._session.flush()
+        try:
+            async with self._session.begin_nested():
+                await self._session.flush()
+        except IntegrityError as exc:
+            if group in self._session:
+                self._session.expunge(group)
+            if telegram_chat_id is not None:
+                raise DuplicateGroupChatIdError() from exc
+            raise
         return group
+
+    async def set_telegram_chat_id(self, group_id: int, telegram_chat_id: int) -> None:
+        group = await self._session.get(Group, group_id)
+        if group is None:
+            return
+        group.telegram_chat_id = telegram_chat_id
+        try:
+            async with self._session.begin_nested():
+                await self._session.flush()
+        except IntegrityError as exc:
+            self._session.expire(group)
+            raise DuplicateGroupChatIdError() from exc
 
     async def list_members(self, group_id: int) -> list[Member]:
         stmt = (
@@ -91,6 +117,13 @@ class GroupRepository:
         member = await self._session.get(Member, member_id)
         if member:
             member.is_on_vacation = is_on_vacation
+            await self._session.flush()
+
+    async def set_rating_stars(self, member_id: int, stars: Decimal) -> None:
+        """Profildagi yakuniy daraja keshini yangilaydi (RatingService hisoblab beradi)."""
+        member = await self._session.get(Member, member_id)
+        if member:
+            member.rating_stars_cache = stars
             await self._session.flush()
 
     async def set_role(self, member_id: int, role: MemberRole) -> Member | None:

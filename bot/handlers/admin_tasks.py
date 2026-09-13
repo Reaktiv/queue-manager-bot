@@ -6,18 +6,19 @@ from datetime import datetime, timezone
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
-from bot.handlers.groups import get_active_group_id
-from bot.keyboards.inline import (
+from handlers.groups import get_active_group_id
+from keyboards.inline import (
     admin_task_menu_keyboard,
+    confirm_keyboard,
     member_selection_keyboard,
     task_list_keyboard,
     yes_no_keyboard,
 )
-from bot.services.api_client import ApiClient
-from bot.states.fsm import CreateTaskStates, EditReminderStates, SwapStates
-from bot.utils.datetime_utils import get_local_today_in_timezone
+from services.api_client import ApiClient
+from states.fsm import CreateTaskStates, EditReminderStates, ReorderStates
+from utils.datetime_utils import get_local_today_in_timezone
 
 router = Router(name="admin_tasks")
 
@@ -77,14 +78,9 @@ async def handle_list_tasks(message: Message, state: FSMContext, api_client: Api
     )
 
 
-@router.callback_query(F.data.startswith("admin_task_menu:"))
-async def handle_task_menu(callback: CallbackQuery, state: FSMContext, api_client: ApiClient) -> None:
-    if callback.data is None or callback.message is None:
-        return
-    if not await _require_group_admin(state, callback):
-        return
-
-    task_id = int(callback.data.split(":")[1])
+async def _show_task_menu(
+    callback: CallbackQuery, state: FSMContext, api_client: ApiClient, task_id: int
+) -> None:
     group_id = await get_active_group_id(state)
     task_title = f"Vazifa #{task_id}"
 
@@ -99,6 +95,17 @@ async def handle_task_menu(callback: CallbackQuery, state: FSMContext, api_clien
         f"{task_title} - kerakli amalni tanlang:",
         reply_markup=admin_task_menu_keyboard(task_id),
     )
+
+
+@router.callback_query(F.data.startswith("admin_task_menu:"))
+async def handle_task_menu(callback: CallbackQuery, state: FSMContext, api_client: ApiClient) -> None:
+    if callback.data is None or callback.message is None:
+        return
+    if not await _require_group_admin(state, callback):
+        return
+
+    task_id = int(callback.data.split(":")[1])
+    await _show_task_menu(callback, state, api_client, task_id)
     await callback.answer()
 
 
@@ -126,7 +133,25 @@ async def handle_preview_queue(callback: CallbackQuery, api_client: ApiClient) -
 
 
 @router.callback_query(F.data.startswith("admin_skip:"))
-async def handle_admin_skip(callback: CallbackQuery, state: FSMContext, api_client: ApiClient) -> None:
+async def handle_admin_skip(callback: CallbackQuery, state: FSMContext) -> None:
+    if callback.data is None or callback.message is None:
+        return
+    if not await _require_group_admin(state, callback):
+        return
+    task_id = int(callback.data.split(":")[1])
+
+    await callback.message.edit_text(
+        "⏭ Joriy a'zoni o'tkazib, navbatni keyingisiga surmoqchimisiz?",
+        reply_markup=confirm_keyboard(
+            yes_callback_data=f"admin_skip_confirm:{task_id}",
+            back_callback_data=f"admin_task_menu:{task_id}",
+        ),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin_skip_confirm:"))
+async def handle_admin_skip_confirm(callback: CallbackQuery, state: FSMContext, api_client: ApiClient) -> None:
     if callback.data is None or callback.message is None:
         return
     if not await _require_group_admin(state, callback):
@@ -134,7 +159,7 @@ async def handle_admin_skip(callback: CallbackQuery, state: FSMContext, api_clie
     task_id = int(callback.data.split(":")[1])
     user = callback.from_user
     result = await api_client.skip_queue(user.id, task_id)
-    await callback.message.answer(
+    await callback.message.edit_text(
         "⏭ Navbat o'tkazib yuborildi." if result.get("success") else f"❌ {result.get('message')}"
     )
     await callback.answer()
@@ -155,71 +180,133 @@ async def handle_admin_delete(callback: CallbackQuery, state: FSMContext, api_cl
     await callback.answer()
 
 
+def _reorder_pick_keyboard(remaining: list[dict], task_id: int) -> InlineKeyboardMarkup:
+    """Navbatdagi a'zoni tanlash klaviaturasi + har doim "Bekor qilish"
+    tugmasi bilan - jarayonni istalgan qadamda to'xtatib, menyuga qaytish
+    mumkin bo'lishi uchun."""
+    picker = member_selection_keyboard(remaining, prefix="reorder_pick")
+    cancel_row = [InlineKeyboardButton(text="🔙 Bekor qilish", callback_data=f"admin_swap_cancel:{task_id}")]
+    return InlineKeyboardMarkup(inline_keyboard=picker.inline_keyboard + [cancel_row])
+
+
 @router.callback_query(F.data.startswith("admin_swap_start:"))
-async def handle_swap_start(callback: CallbackQuery, state: FSMContext, api_client: ApiClient) -> None:
+async def handle_reorder_start(callback: CallbackQuery, state: FSMContext) -> None:
+    """
+    Navbat tartibini qayta belgilashdan oldin BITTA tasdiqlash so'raydi -
+    darhol a'zolarni birma-bir tanlash jarayoniga o'tib ketmaslik uchun.
+    """
     if callback.data is None or callback.message is None:
         return
     if not await _require_group_admin(state, callback):
         return
     task_id = int(callback.data.split(":")[1])
-    group_id = await get_active_group_id(state)
-    if group_id is None:
-        await callback.answer("Avval guruhni tanlang", show_alert=True)
-        return
 
-    members_result = await api_client.list_members(group_id)
-    members = members_result.get("data") or []
-
-    await state.update_data(swap_task_id=task_id)
-    await state.set_state(SwapStates.waiting_for_first_member)
-    await callback.message.answer(
-        "🔄 Birinchi a'zoni tanlang:",
-        reply_markup=member_selection_keyboard(members, prefix="swap_first"),
+    await callback.message.edit_text(
+        "🔄 Navbat tartibini qayta belgilamoqchimisiz? Buning uchun barcha "
+        "a'zolarni birma-bir, xohlagan tartibda tanlashingiz kerak bo'ladi.",
+        reply_markup=confirm_keyboard(
+            yes_callback_data=f"admin_reorder_confirm:{task_id}",
+            back_callback_data=f"admin_task_menu:{task_id}",
+        ),
     )
     await callback.answer()
 
 
-@router.callback_query(SwapStates.waiting_for_first_member, F.data.startswith("swap_first:"))
-async def handle_swap_first(callback: CallbackQuery, state: FSMContext, api_client: ApiClient) -> None:
+@router.callback_query(F.data.startswith("admin_reorder_confirm:"))
+async def handle_reorder_confirm(callback: CallbackQuery, state: FSMContext, api_client: ApiClient) -> None:
+    """
+    Navbat tartibini QAYTA BELGILASH oqimini boshlaydi. Avval bu shunchaki
+    2 ta a'zoning o'rnini almashtirar edi (swap) - agar navbatda 5 ta a'zo
+    bo'lsa, faqat shu 2 tasi so'ralib, qolgan 3 tasi hech qachon so'ralmas
+    edi. Endi admin BARCHA a'zolarni birma-bir, xohlagan tartibda tanlaydi -
+    oxirgisi tanlanganda butun tartib bir martada saqlanadi.
+    """
     if callback.data is None or callback.message is None:
         return
     if not await _require_group_admin(state, callback):
         return
-    member_id_a = int(callback.data.split(":")[1])
-    data = await state.get_data()
-    group_id = data.get("active_group_id")
+    task_id = int(callback.data.split(":")[1])
 
-    members_result = await api_client.list_members(group_id)
-    members = [m for m in (members_result.get("data") or []) if m["member_id"] != member_id_a]
+    queue_result = await api_client.get_full_queue(task_id)
+    entries = queue_result.get("data") or []
+    if len(entries) < 2:
+        await callback.message.edit_text("⚠️ Navbat tartibini o'zgartirish uchun kamida 2 ta a'zo kerak.")
+        await callback.answer()
+        return
 
-    await state.update_data(swap_member_a=member_id_a)
-    await state.set_state(SwapStates.waiting_for_second_member)
-    await callback.message.answer(
-        "🔄 Ikkinchi a'zoni tanlang:",
-        reply_markup=member_selection_keyboard(members, prefix="swap_second"),
+    remaining = [{"member_id": e["member_id"], "full_name": e["full_name"]} for e in entries]
+
+    await state.update_data(reorder_task_id=task_id, reorder_remaining=remaining, reorder_selected=[])
+    await state.set_state(ReorderStates.waiting_for_next_member)
+    await callback.message.edit_text(
+        "🔄 Yangi navbat tartibini belgilaymiz.\n\n1-o'rin uchun a'zoni tanlang:",
+        reply_markup=_reorder_pick_keyboard(remaining, task_id),
     )
     await callback.answer()
 
 
-@router.callback_query(SwapStates.waiting_for_second_member, F.data.startswith("swap_second:"))
-async def handle_swap_second(callback: CallbackQuery, state: FSMContext, api_client: ApiClient) -> None:
+@router.callback_query(F.data.startswith("admin_swap_cancel:"))
+async def handle_reorder_cancel(callback: CallbackQuery, state: FSMContext, api_client: ApiClient) -> None:
     if callback.data is None or callback.message is None:
         return
-    if not await _require_group_admin(state, callback):
-        return
-    member_id_b = int(callback.data.split(":")[1])
-    data = await state.get_data()
-    task_id = data.get("swap_task_id")
-    member_id_a = data.get("swap_member_a")
-    user = callback.from_user
+    task_id = int(callback.data.split(":")[1])
 
-    result = await api_client.swap_queue(user.id, task_id, member_id_a, member_id_b)
-    await callback.message.answer(
-        "✅ A'zolar navbatda almashtirildi." if result.get("success") else f"❌ {result.get('message')}"
-    )
-    active_data = {k: v for k, v in data.items() if k.startswith("active_")}
+    data = await state.get_data()
+    preserved = {k: v for k, v in data.items() if k.startswith("active_")}
     await state.clear()
-    await state.set_data(active_data)
+    await state.set_data(preserved)
+
+    await _show_task_menu(callback, state, api_client, task_id)
+    await callback.answer("Bekor qilindi")
+
+
+@router.callback_query(ReorderStates.waiting_for_next_member, F.data.startswith("reorder_pick:"))
+async def handle_reorder_pick(callback: CallbackQuery, state: FSMContext, api_client: ApiClient) -> None:
+    if callback.data is None or callback.message is None:
+        return
+    if not await _require_group_admin(state, callback):
+        return
+    member_id = int(callback.data.split(":")[1])
+    data = await state.get_data()
+    remaining = data.get("reorder_remaining") or []
+    selected = data.get("reorder_selected") or []
+    task_id = data.get("reorder_task_id")
+
+    picked = next((m for m in remaining if m["member_id"] == member_id), None)
+    if picked is None:
+        # Eskirgan/qayta bosilgan tugma - e'tiborsiz qoldiriladi.
+        await callback.answer()
+        return
+
+    selected = selected + [picked]
+    remaining = [m for m in remaining if m["member_id"] != member_id]
+
+    if not remaining:
+        # Oxirgi a'zo ham tanlandi - butun tartib bir martada saqlanadi.
+        user = callback.from_user
+        member_ids_in_order = [m["member_id"] for m in selected]
+        result = await api_client.reorder_queue(user.id, task_id, member_ids_in_order)
+
+        if result.get("success"):
+            lines = ["✅ Yangi navbat tartibi saqlandi:\n"]
+            lines += [f"{i + 1}. {m['full_name']}" for i, m in enumerate(selected)]
+            text = "\n".join(lines)
+        else:
+            text = f"❌ {result.get('message')}"
+        await callback.message.edit_text(text)
+
+        preserved = {k: v for k, v in data.items() if k.startswith("active_")}
+        await state.clear()
+        await state.set_data(preserved)
+        await callback.answer()
+        return
+
+    await state.update_data(reorder_remaining=remaining, reorder_selected=selected)
+    await callback.message.edit_text(
+        f"✅ {picked['full_name']} - {len(selected)}-o'rin.\n\n"
+        f"{len(selected) + 1}-o'rin uchun a'zoni tanlang:",
+        reply_markup=_reorder_pick_keyboard(remaining, task_id),
+    )
     await callback.answer()
 
 

@@ -7,9 +7,9 @@ from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
-from bot.i18n.translator import t
-from bot.services.api_client import ApiClient
-from bot.states.fsm import CreateGroupStates, JoinGroupStates
+from i18n.translator import t
+from services.api_client import ApiClient
+from states.fsm import CreateGroupStates, JoinGroupStates
 
 logger = structlog.get_logger()
 router = Router(name="registration")

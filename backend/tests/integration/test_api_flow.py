@@ -199,6 +199,113 @@ async def test_admin_swap_queue_endpoint_uses_member_ids(client):
     assert entries_after[1]["member_id"] == member_id_first
 
 
+async def test_admin_reorder_queue_endpoint_sets_full_order(client):
+    """
+    `/tasks/{task_id}/queue/reorder` - admin butun navbatni (barcha
+    a'zolarni) bir martada, yangi tartibda qayta belgilashi mumkin
+    (oldingi `/queue/swap` faqat 2 tasini almashtirar edi).
+    """
+    for telegram_id, name in [(6101, "Reorder Admin"), (6102, "Member B"), (6103, "Member C")]:
+        await client.post(
+            "/api/v1/users/register",
+            json={"telegram_id": telegram_id, "full_name": name},
+            headers=HEADERS,
+        )
+
+    resp = await client.post(
+        "/api/v1/groups/create",
+        json={"telegram_id": 6101, "name": "Reorder Test Group"},
+        headers=HEADERS,
+    )
+    group_data = resp.json()["data"]
+    invite_code = group_data["invite_code"]
+
+    for telegram_id in (6102, 6103):
+        await client.post(
+            "/api/v1/groups/join",
+            json={"telegram_id": telegram_id, "invite_code": invite_code},
+            headers=HEADERS,
+        )
+
+    resp = await client.post(
+        "/api/v1/tasks/",
+        json={
+            "telegram_id": 6101,
+            "group_id": group_data["group_id"],
+            "name": "Reorder Test Task",
+            "require_photo": False,
+        },
+        headers=HEADERS,
+    )
+    task_id = resp.json()["data"]["task_id"]
+
+    resp = await client.get(f"/api/v1/tasks/{task_id}/queue/full", headers=HEADERS)
+    entries_before = resp.json()["data"]
+    assert len(entries_before) == 3
+    member_ids = [e["member_id"] for e in entries_before]
+    new_order = list(reversed(member_ids))
+
+    resp = await client.post(
+        f"/api/v1/tasks/{task_id}/queue/reorder",
+        json={"telegram_id": 6101, "member_ids": new_order},
+        headers=HEADERS,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["success"] is True
+
+    resp = await client.get(f"/api/v1/tasks/{task_id}/queue/full", headers=HEADERS)
+    entries_after = resp.json()["data"]
+    assert [e["member_id"] for e in entries_after] == new_order
+    assert entries_after[0]["is_locked"] is True
+
+
+async def test_admin_reorder_queue_endpoint_rejects_incomplete_list(client):
+    await client.post(
+        "/api/v1/users/register",
+        json={"telegram_id": 6201, "full_name": "Reorder Admin 2"},
+        headers=HEADERS,
+    )
+    await client.post(
+        "/api/v1/users/register",
+        json={"telegram_id": 6202, "full_name": "Reorder Member 2"},
+        headers=HEADERS,
+    )
+
+    resp = await client.post(
+        "/api/v1/groups/create",
+        json={"telegram_id": 6201, "name": "Reorder Test Group 2"},
+        headers=HEADERS,
+    )
+    group_data = resp.json()["data"]
+    await client.post(
+        "/api/v1/groups/join",
+        json={"telegram_id": 6202, "invite_code": group_data["invite_code"]},
+        headers=HEADERS,
+    )
+
+    resp = await client.post(
+        "/api/v1/tasks/",
+        json={
+            "telegram_id": 6201,
+            "group_id": group_data["group_id"],
+            "name": "Reorder Test Task 2",
+            "require_photo": False,
+        },
+        headers=HEADERS,
+    )
+    task_id = resp.json()["data"]["task_id"]
+
+    resp = await client.get(f"/api/v1/tasks/{task_id}/queue/full", headers=HEADERS)
+    member_ids = [e["member_id"] for e in resp.json()["data"]]
+
+    resp = await client.post(
+        f"/api/v1/tasks/{task_id}/queue/reorder",
+        json={"telegram_id": 6201, "member_ids": member_ids[:1]},
+        headers=HEADERS,
+    )
+    assert resp.json()["success"] is False
+
+
 async def test_invalid_invite_code_returns_failure(client):
     await client.post(
         "/api/v1/users/register",
