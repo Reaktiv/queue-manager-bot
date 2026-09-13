@@ -83,12 +83,6 @@ class AssignmentRepository:
         await self._session.flush()
         return assignment
 
-    async def mark_pending(self, assignment: TaskAssignment) -> TaskAssignment:
-        """Guruh vazifani rad etganda - a'zo qayta bajarishi uchun holatni qaytaradi."""
-        assignment.status = TaskStatus.PENDING
-        await self._session.flush()
-        return assignment
-
     async def get_by_id(self, assignment_id: int) -> TaskAssignment | None:
         return await self._session.get(TaskAssignment, assignment_id)
 

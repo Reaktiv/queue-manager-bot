@@ -27,8 +27,14 @@ class UserOut(BaseModel):
     full_name: str
     username: str | None
     language: str
+    phone_number: str | None = None
 
     model_config = {"from_attributes": True}
+
+
+class SetPhoneNumberRequest(BaseModel):
+    telegram_id: int
+    phone_number: str = Field(min_length=1, max_length=32)
 
 
 class ApiResponse(BaseModel):
@@ -67,6 +73,25 @@ async def get_user(
 ):
     await ensure_actor_owns_telegram_id(identity, telegram_id, session)
     user = await service.get_by_telegram_id(telegram_id)
+    if user is None:
+        return ApiResponse(success=False, message="Foydalanuvchi topilmadi")
+    return ApiResponse(success=True, data=UserOut.model_validate(user).model_dump())
+
+
+@router.post("/phone", response_model=ApiResponse)
+async def set_phone_number(
+    payload: SetPhoneNumberRequest,
+    session: AsyncSession = Depends(get_session),
+    service: UserService = Depends(get_user_service),
+    identity: Identity = Depends(verify_bot_or_mini_app),
+):
+    """
+    Bot foydalanuvchi Telegram'ning "kontakt ulashish" tugmasi orqali
+    o'z raqamini yuborganda shu yerga saqlaydi. Botlar boshqa birovning
+    raqamini so'ray olmaydi - bu har doim foydalanuvchining O'Z raqami.
+    """
+    await ensure_actor_owns_telegram_id(identity, payload.telegram_id, session)
+    user = await service.set_phone_number(payload.telegram_id, payload.phone_number)
     if user is None:
         return ApiResponse(success=False, message="Foydalanuvchi topilmadi")
     return ApiResponse(success=True, data=UserOut.model_validate(user).model_dump())

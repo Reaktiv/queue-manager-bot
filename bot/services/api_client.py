@@ -47,6 +47,25 @@ class ApiClient:
             logger.error("Register user request failed", error=str(e))
             return {"success": False, "message": str(e)}
 
+    async def get_user(self, telegram_id: int) -> dict:
+        try:
+            response = await self._client.get(f"/api/v1/users/{telegram_id}")
+            return response.json()
+        except Exception as e:
+            logger.error("Get user request failed", error=str(e))
+            return {"success": False, "message": str(e)}
+
+    async def set_phone_number(self, telegram_id: int, phone_number: str) -> dict:
+        try:
+            response = await self._client.post(
+                "/api/v1/users/phone",
+                json={"telegram_id": telegram_id, "phone_number": phone_number},
+            )
+            return response.json()
+        except Exception as e:
+            logger.error("Set phone number request failed", error=str(e))
+            return {"success": False, "message": str(e)}
+
     async def create_group(
         self,
         telegram_id: int,
@@ -302,17 +321,6 @@ class ApiClient:
             return response.json()
         except Exception as e:
             logger.error("Complete task with photo request failed", error=str(e))
-            return {"success": False, "message": str(e)}
-
-    async def vote_completion(self, telegram_id: int, completion_id: int, approve: bool) -> dict:
-        try:
-            response = await self._client.post(
-                f"/api/v1/completion/{completion_id}/vote",
-                json={"telegram_id": telegram_id, "approve": approve},
-            )
-            return response.json()
-        except Exception as e:
-            logger.error("Vote completion request failed", error=str(e))
             return {"success": False, "message": str(e)}
 
     async def rate_completion(self, telegram_id: int, completion_id: int, stars: int) -> dict:

@@ -306,6 +306,33 @@ async def test_admin_reorder_queue_endpoint_rejects_incomplete_list(client):
     assert resp.json()["success"] is False
 
 
+async def test_set_and_get_phone_number(client):
+    """
+    Bot foydalanuvchi "kontakt ulashish" tugmasi orqali o'z raqamini
+    yuborganda `/users/phone` shu raqamni saqlaydi va keyingi
+    `GET /users/{telegram_id}` javobida qaytarilishi kerak.
+    """
+    await client.post(
+        "/api/v1/users/register",
+        json={"telegram_id": 7001, "full_name": "Phone User"},
+        headers=HEADERS,
+    )
+
+    resp = await client.get("/api/v1/users/7001", headers=HEADERS)
+    assert resp.json()["data"]["phone_number"] is None
+
+    resp = await client.post(
+        "/api/v1/users/phone",
+        json={"telegram_id": 7001, "phone_number": "+998901234567"},
+        headers=HEADERS,
+    )
+    assert resp.json()["success"] is True
+    assert resp.json()["data"]["phone_number"] == "+998901234567"
+
+    resp = await client.get("/api/v1/users/7001", headers=HEADERS)
+    assert resp.json()["data"]["phone_number"] == "+998901234567"
+
+
 async def test_invalid_invite_code_returns_failure(client):
     await client.post(
         "/api/v1/users/register",

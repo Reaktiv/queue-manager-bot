@@ -24,6 +24,10 @@ class User(Base):
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     username: Mapped[str | None] = mapped_column(String(64), nullable=True)
     language: Mapped[str] = mapped_column(String(8), default="uz", nullable=False)
+    """Foydalanuvchining O'ZI "kontakt ulashish" tugmasi orqali bergan telefon
+    raqami (botlar boshqa birovning raqamini so'ray olmaydi) - hali
+    ulashmagan bo'lsa `None`."""
+    phone_number: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
     is_super_admin: Mapped[bool] = mapped_column(default=False)
     is_active: Mapped[bool] = mapped_column(default=True)

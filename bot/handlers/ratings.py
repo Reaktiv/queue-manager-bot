@@ -1,13 +1,13 @@
 """
-Guruh a'zolarining bajarilgan (tasdiqlangan) vazifaga sifat bahosi
-(1-5 yulduz) qo'yish oqimi.
+Guruh a'zolarining bajarilgan vazifaga sifat bahosi (1-5 yulduz)
+qo'yish oqimi.
 
-Bu `approvals.py`dagi tasdiqlash/rad etish ovozidan ALOHIDA: approve/reject
-"bajarildimi?" degan savolga javob beradi, rating esa "qanday bajarildi?"
-ga. Tasdiqlangan topshiriq uchun bot ✅/❌ tugmalarini ⭐ tugmalariga
-almashtiradi (approvals.py'dagi `handle_vote`), shu yerdagi handler o'sha
-tugmalar bosilganda ishlaydi. Klaviatura doimiy qoladi - bir nechta
-guruhdosh baho bera oladi.
+Vazifa rasm yuklangan zahoti allaqachon tasdiqlangan (guruh ovoz
+berishi shart emas) - bu yerdagi baho "bajarildimi?" ga emas, "qanday
+bajarildi?" ga javob beradi va navbatga hech qanday ta'sir qilmaydi.
+Bot rasmni guruhga yuklangan zahoti ⭐ tugmalari bilan yuboradi
+(my_tasks.py), shu yerdagi handler o'sha tugmalar bosilganda ishlaydi.
+Klaviatura doimiy qoladi - bir nechta guruhdosh baho bera oladi.
 """
 import structlog
 from aiogram import F, Router

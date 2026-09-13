@@ -37,8 +37,14 @@ type Pane = "tasks" | "members" | "broadcast";
 export function AdminDashboard({ user, group }: Props) {
   const [pane, setPane] = useState<Pane>("tasks");
 
-  const tasks = useAsyncData<TaskSummary[]>(() => api.listTasks(group.id), [group.id]);
-  const members = useAsyncData<MemberSummary[]>(() => api.listMembers(group.id), [group.id]);
+  const tasks = useAsyncData<TaskSummary[]>("group-tasks", () => api.listTasks(group.id), [
+    group.id,
+  ]);
+  const members = useAsyncData<MemberSummary[]>(
+    "group-members",
+    () => api.listMembers(group.id),
+    [group.id]
+  );
 
   const [createOpen, setCreateOpen] = useState(false);
   const [openTask, setOpenTask] = useState<TaskSummary | null>(null);
@@ -64,6 +70,7 @@ export function AdminDashboard({ user, group }: Props) {
   /* Navbat ham boshqa so'rovlar kabi yuklanish/xato/qayta urinish holatiga ega.
      Ilgari u oddiy useEffect + setState edi va xato holati umuman yo'q edi. */
   const queue = useAsyncData<QueueEntry[]>(
+    "queue-preview",
     openTask ? () => api.getQueuePreview(openTask.id) : null,
     [openTask?.id]
   );

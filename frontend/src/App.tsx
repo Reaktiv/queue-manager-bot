@@ -47,6 +47,7 @@ export default function App() {
   const [superAdminView, setSuperAdminView] = useState(false);
 
   const groups = useAsyncData<GroupSummary[]>(
+    "groups",
     user ? () => api.listMyGroups(user.telegram_id) : null,
     [user?.telegram_id]
   );

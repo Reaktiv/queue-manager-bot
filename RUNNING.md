@@ -21,7 +21,20 @@ Portlarni almashtirish: `BACKEND_PORT=9000 ./run-backend.sh`
 docker compose up -d --build
 docker compose logs -f
 ```
-Kirish nuqtasi: http://localhost (nginx), API: http://localhost:8000/docs
+Kirish nuqtasi: http://localhost:8081 (nginx), API: http://localhost:8005/docs
+
+Standart host portlari (80/8000/3000 emas) shu server boshqa loyiha(lar)
+bilan bo'lishilganda to'qnashmasligi uchun ataylab kamdan-kam ishlatiladigan
+raqamlarga o'rnatilgan: nginx `8081`, backend `8005`, frontend `3001`,
+Postgres `5432`, Redis `6379`. Kerak bo'lsa, `docker-compose.yml`ning
+o'zini tahrirlamasdan `.env`da mos o'zgaruvchini belgilab o'zgartirish
+mumkin:
+
+```bash
+NGINX_PORT=8090 BACKEND_PORT=8010 FRONTEND_PORT=3010 \
+POSTGRES_HOST_PORT=55432 REDIS_HOST_PORT=56379 \
+docker compose up -d --build
+```
 
 ## Sozlamalar
 
