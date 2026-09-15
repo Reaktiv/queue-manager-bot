@@ -39,12 +39,24 @@ async def handle_start(message: Message, api_client: ApiClient) -> None:
         language=lang,
     )
 
-    # Doimiy pastki menyu DARHOL ko'rsatiladi - foydalanuvchi har safar
-    # Mini App'ga kirmasdan ham Profil/vazifalar/yordamga bir bosishda
-    # o'ta oladi. Telefon raqami so'ralishi BU YERDA emas - u faqat
-    # "Profil" ochilganda (agar hali ulashilmagan bo'lsa) so'raladi
-    # (handlers/profile.py), shunda /start darhol to'liq menyu bilan
-    # yakunlanadi, oraliq "raqam ulashasizmi?" bosqichi bilan kechikmaydi.
+    # DIQQAT: `ReplyKeyboardMarkup` (doimiy pastki menyu) FOYDALANUVCHIGA
+    # emas, CHATga biriktiriladi. Guruh ichida "/start" yozilganda uni
+    # aynan shu odam uchun deb o'ylab yuborsak, Telegram uni GURUHDAGI
+    # BARCHA a'zolarning pastki klaviaturasida ko'rsatib qo'yardi - "Profil"/
+    # "Mening vazifalarim" esa shaxsiy amallar, guruhga umuman tegishli
+    # emas. Shuning uchun bu menyu FAQAT shaxsiy chatda yuboriladi.
+    if message.chat.type != "private":
+        me = await message.bot.get_me()
+        await message.answer(
+            f"👋 Salom, {user.first_name}! To'liq menyu (Profil, vazifalar) uchun "
+            f"botga shaxsiy xabar yozing: @{me.username}"
+        )
+        return
+
+    # Telefon raqami so'ralishi BU YERDA emas - u faqat "Profil" ochilganda
+    # (agar hali ulashilmagan bo'lsa) so'raladi (handlers/profile.py),
+    # shunda /start darhol to'liq menyu bilan yakunlanadi, oraliq "raqam
+    # ulashasizmi?" bosqichi bilan kechikmaydi.
     await message.answer(
         t("welcome", lang=lang, name=user.first_name), reply_markup=main_menu_keyboard()
     )

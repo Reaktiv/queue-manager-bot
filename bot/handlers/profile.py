@@ -24,6 +24,11 @@ async def handle_contact_received(message: Message, api_client: ApiClient) -> No
     user = message.from_user
     if contact is None or user is None:
         return
+    # Kontakt ulashish shaxsiy amal - guruhda tasodifan yuborilgan bo'lsa
+    # ham, javob (va uning doimiy klaviaturasi) FAQAT yuboruvchining
+    # o'ziga, shaxsiy chatda ko'rinishi kerak (pastdagi izohga qarang).
+    if message.chat.type != "private":
+        return
 
     # Xavfsizlik: Telegram forward qilingan (boshqa kimningdir) kontakt
     # kartasini ham yuborish imkonini beradi - faqat foydalanuvchining
@@ -48,6 +53,8 @@ async def handle_contact_received(message: Message, api_client: ApiClient) -> No
 
 @router.message(F.text == SKIP_CONTACT_BUTTON)
 async def handle_skip_contact(message: Message) -> None:
+    if message.chat.type != "private":
+        return
     await message.answer(
         "Yaxshi, xohlasangiz keyinroq Profil bo'limidan ulashishingiz mumkin.",
         reply_markup=main_menu_keyboard(),
@@ -99,7 +106,9 @@ async def handle_profile(message: Message, api_client: ApiClient) -> None:
 
     await message.answer("\n".join(lines))
 
-    if not phone:
+    # Telefon so'rash tugmasi ham doimiy klaviatura - guruhga chiqib
+    # ketmasligi uchun faqat shaxsiy chatda so'raladi.
+    if not phone and message.chat.type == "private":
         await message.answer(
             "📱 Boshqa a'zolar siz bilan bog'lanishi osonroq bo'lishi uchun "
             "raqamingizni ulashasizmi?",
