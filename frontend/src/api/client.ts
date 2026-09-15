@@ -7,6 +7,7 @@ import type {
   MemberSummary,
   QueueEntry,
   SuperAdminGroupSummary,
+  SuperAdminUserProfile,
   SuperAdminUserSummary,
   SystemStats,
   TaskSummary,
@@ -260,6 +261,9 @@ export const api = {
 
   listAllUsers: () =>
     request<SuperAdminUserSummary[]>("/api/v1/superadmin/users"),
+
+  getSuperAdminUserProfile: (userId: number) =>
+    request<SuperAdminUserProfile>(`/api/v1/superadmin/users/${userId}/profile`),
 
   getSystemStats: () => request<SystemStats>("/api/v1/superadmin/stats"),
 

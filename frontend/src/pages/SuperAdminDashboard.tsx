@@ -21,10 +21,12 @@ import {
   toast,
 } from "../components/ui";
 import { ListSkeleton, StatRailSkeleton } from "../components/Skeletons";
+import { SuperAdminUserProfileSheet } from "../components/SuperAdminUserProfileSheet";
 import { useAsyncData } from "../hooks/useAsyncData";
 import { formatStamp } from "../lib/format";
 import type {
   ErrorLog,
+  GroupSummary,
   SuperAdminGroupSummary,
   SuperAdminUserSummary,
   SystemStats,
@@ -32,8 +34,22 @@ import type {
 
 type Tab = "overview" | "groups" | "users" | "logs" | "broadcast";
 
-export function SuperAdminDashboard({ onBack }: { onBack: () => void }) {
+interface Props {
+  onBack: () => void;
+  /**
+   * Guruh qatoriga bosilganda chaqiriladi - App.tsx shu guruhni "faol
+   * guruh" qilib, Super Admin panelidan chiqib, o'sha guruhning admin
+   * ko'rinishini ochadi. Backend guruhga oid endpointlarda Super
+   * Admin'ni har doim admin sifatida qabul qiladi (`ensure_admin_for_group`
+   * uni chetlab o'tadi), shuning uchun bu yerda haqiqiy a'zolik shart
+   * emas - shunchaki "admin" rolini qo'lda belgilaymiz.
+   */
+  onOpenGroup: (group: GroupSummary) => void;
+}
+
+export function SuperAdminDashboard({ onBack, onOpenGroup }: Props) {
   const [tab, setTab] = useState<Tab>("overview");
+  const [profileUserId, setProfileUserId] = useState<number | null>(null);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   /* Ikkala amal ham oqibatli: biri butun tizimni yopadi, ikkinchisi
@@ -252,6 +268,16 @@ export function SuperAdminDashboard({ onBack }: { onBack: () => void }) {
                           <Badge tone="danger">Yopiq</Badge>
                         )
                       }
+                      onClick={() =>
+                        onOpenGroup({
+                          id: g.id,
+                          name: g.name,
+                          role: "admin",
+                          member_id: -1,
+                          timezone: g.timezone,
+                        })
+                      }
+                      ariaLabel={`${g.name} guruhini ochish`}
                     />
                   ))}
                 </DataList>
@@ -305,6 +331,8 @@ export function SuperAdminDashboard({ onBack }: { onBack: () => void }) {
                           <Badge tone="danger">Blok</Badge>
                         )
                       }
+                      onClick={() => setProfileUserId(u.id)}
+                      ariaLabel={`${u.full_name} profilini ochish`}
                     />
                   ))}
                 </DataList>
@@ -406,6 +434,12 @@ export function SuperAdminDashboard({ onBack }: { onBack: () => void }) {
             </div>
           )}
         </div>
+
+        <SuperAdminUserProfileSheet
+          open={profileUserId !== null}
+          onClose={() => setProfileUserId(null)}
+          userId={profileUserId}
+        />
 
         <ConfirmDialog
           open={confirmMaintenance}

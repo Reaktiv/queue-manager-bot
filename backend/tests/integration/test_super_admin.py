@@ -121,6 +121,69 @@ async def test_clear_error_logs_requires_super_admin(client, monkeypatch):
     assert resp.status_code == 403
 
 
+async def test_get_user_profile_returns_group_membership_and_rating(client, monkeypatch):
+    admin_user_id = await _register_super_admin(client, monkeypatch)
+    admin_token = create_access_token(admin_user_id, is_super_admin=True)
+
+    # Oddiy foydalanuvchi ro'yxatdan o'tadi va bitta guruhga qo'shiladi.
+    resp = await client.post(
+        "/api/v1/users/register",
+        json={"telegram_id": 9010, "full_name": "Profile Target", "username": "target"},
+        headers=HEADERS,
+    )
+    target_id = resp.json()["data"]["id"]
+
+    resp = await client.post(
+        "/api/v1/groups/create",
+        json={"telegram_id": 9010, "name": "Profile Test Group"},
+        headers=HEADERS,
+    )
+    group_data = resp.json()["data"]
+
+    resp = await client.get(
+        f"/api/v1/superadmin/users/{target_id}/profile",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is True
+    assert body["data"]["telegram_id"] == 9010
+    assert body["data"]["full_name"] == "Profile Target"
+    assert len(body["data"]["groups"]) == 1
+    group_entry = body["data"]["groups"][0]
+    assert group_entry["group_id"] == group_data["group_id"]
+    assert group_entry["role"] == "admin"
+    assert group_entry["rating_stars"] == 5.0
+
+
+async def test_get_user_profile_unknown_id_returns_failure(client, monkeypatch):
+    admin_user_id = await _register_super_admin(client, monkeypatch)
+    admin_token = create_access_token(admin_user_id, is_super_admin=True)
+
+    resp = await client.get(
+        "/api/v1/superadmin/users/999999/profile",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert resp.json()["success"] is False
+
+
+async def test_get_user_profile_requires_super_admin(client, monkeypatch):
+    await _register_super_admin(client, monkeypatch)
+    resp = await client.post(
+        "/api/v1/users/register",
+        json={"telegram_id": 9011, "full_name": "Regular Joe"},
+        headers=HEADERS,
+    )
+    regular_user_id = resp.json()["data"]["id"]
+    token = create_access_token(regular_user_id, is_super_admin=False)
+
+    resp = await client.get(
+        f"/api/v1/superadmin/users/{regular_user_id}/profile",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 403
+
+
 async def test_maintenance_mode_toggle_via_service(session):
     """
     Middleware alohida DB ulanishi ishlatgani uchun (background-safe dizayn),

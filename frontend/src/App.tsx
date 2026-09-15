@@ -69,7 +69,15 @@ export default function App() {
   if (!user) return shell(<BootSkeleton />);
 
   if (superAdminView) {
-    return shell(<SuperAdminDashboard onBack={() => setSuperAdminView(false)} />);
+    return shell(
+      <SuperAdminDashboard
+        onBack={() => setSuperAdminView(false)}
+        onOpenGroup={(group) => {
+          setActiveGroup(group);
+          setSuperAdminView(false);
+        }}
+      />
+    );
   }
 
   if (!activeGroup) {

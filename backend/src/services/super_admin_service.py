@@ -13,6 +13,7 @@ from ..repositories.settings_repository import SettingsRepository
 from ..repositories.task_repository import TaskRepository
 from ..repositories.user_repository import UserRepository
 from .notification_service import NotificationService
+from .rating_service import RatingService
 
 MAINTENANCE_MODE_KEY = "maintenance_mode"
 
@@ -27,6 +28,7 @@ class SuperAdminService:
         settings_repository: SettingsRepository,
         audit_repository: AuditRepository,
         notification_service: NotificationService,
+        rating_service: RatingService | None = None,
     ) -> None:
         self._user_repo = user_repository
         self._group_repo = group_repository
@@ -35,6 +37,7 @@ class SuperAdminService:
         self._settings_repo = settings_repository
         self._audit_repo = audit_repository
         self._notification_service = notification_service
+        self._rating_service = rating_service
 
     async def list_all_groups_with_stats(self) -> list[dict]:
         groups = await self._group_repo.list_all_groups()
@@ -65,6 +68,47 @@ class SuperAdminService:
             }
             for u in users
         ]
+
+    async def get_user_profile(self, user_id: int) -> dict | None:
+        """
+        Super Admin panelidagi "Userlar" ro'yxatida biror foydalanuvchiga
+        bosilganda ko'rsatiladigan to'liq profil: asosiy ma'lumotlar +
+        a'zo bo'lgan HAR BIR guruhdagi reytingi (bitta foydalanuvchi bir
+        nechta guruhda bo'lishi va har birida mustaqil reytingga ega
+        bo'lishi mumkin - shuning uchun bittagina "rating" maydoni
+        yetarli emas).
+        """
+        user = await self._user_repo.get_by_id(user_id)
+        if user is None:
+            return None
+
+        rows = await self._group_repo.list_groups_for_user(user_id)
+        groups = []
+        for group, member in rows:
+            rating_stars = None
+            if self._rating_service is not None:
+                profile = await self._rating_service.get_profile_rating(member.id)
+                rating_stars = profile["rating_stars"]
+            groups.append(
+                {
+                    "group_id": group.id,
+                    "group_name": group.name,
+                    "role": member.role.value,
+                    "rating_stars": rating_stars,
+                }
+            )
+
+        return {
+            "id": user.id,
+            "telegram_id": user.telegram_id,
+            "full_name": user.full_name,
+            "username": user.username,
+            "phone_number": user.phone_number,
+            "is_active": user.is_active,
+            "is_super_admin": user.is_super_admin,
+            "joined_at": user.joined_at.isoformat(),
+            "groups": groups,
+        }
 
     async def get_system_stats(self) -> dict:
         return {

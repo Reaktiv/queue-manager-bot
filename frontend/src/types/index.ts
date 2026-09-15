@@ -109,6 +109,26 @@ export interface SuperAdminUserSummary {
   joined_at: string;
 }
 
+export interface SuperAdminUserGroupMembership {
+  group_id: number;
+  group_name: string;
+  role: "admin" | "member";
+  /** Shu guruhdagi 5 yulduzli reytingi - RatingService ulanmagan bo'lsa `null`. */
+  rating_stars: number | null;
+}
+
+export interface SuperAdminUserProfile {
+  id: number;
+  telegram_id: number;
+  full_name: string;
+  username: string | null;
+  phone_number: string | null;
+  is_active: boolean;
+  is_super_admin: boolean;
+  joined_at: string;
+  groups: SuperAdminUserGroupMembership[];
+}
+
 export interface SystemStats {
   total_groups: number;
   total_users: number;

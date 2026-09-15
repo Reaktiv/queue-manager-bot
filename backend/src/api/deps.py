@@ -102,6 +102,7 @@ def get_completion_service(
 def get_super_admin_service(
     session: AsyncSession = Depends(get_session),
     notification_service: NotificationService = Depends(get_notification_service),
+    rating_service: RatingService = Depends(get_rating_service),
 ) -> SuperAdminService:
     return SuperAdminService(
         user_repository=UserRepository(session),
@@ -111,4 +112,5 @@ def get_super_admin_service(
         settings_repository=SettingsRepository(session),
         audit_repository=AuditRepository(session),
         notification_service=notification_service,
+        rating_service=rating_service,
     )

@@ -47,6 +47,23 @@ async def list_all_users(
     return ApiResponse(success=True, data=data)
 
 
+@router.get("/users/{user_id}/profile", response_model=ApiResponse)
+async def get_user_profile(
+    user_id: int,
+    _admin: CurrentUser = Depends(require_super_admin),
+    service: SuperAdminService = Depends(get_super_admin_service),
+):
+    """
+    "Userlar" ro'yxatidagi biror foydalanuvchiga bosilganda to'liq
+    profilini ko'rsatish uchun - a'zo bo'lgan guruhlar bilan.
+    `user_id` - `User.id` (`/superadmin/users` ro'yxatidagi `id` maydoni).
+    """
+    data = await service.get_user_profile(user_id)
+    if data is None:
+        return ApiResponse(success=False, message="Foydalanuvchi topilmadi")
+    return ApiResponse(success=True, data=data)
+
+
 @router.get("/stats", response_model=ApiResponse)
 async def get_system_stats(
     _admin: CurrentUser = Depends(require_super_admin),
