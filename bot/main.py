@@ -9,6 +9,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import ErrorEvent
 
 from handlers import common, registration, groups, admin_tasks, my_tasks, profile, ratings, stats
+from middlewares.reply_keyboard_guard import strip_group_reply_keyboards
 from services.api_client import ApiClient
 from dotenv import load_dotenv
 
@@ -35,6 +36,11 @@ async def main() -> None:
         )
 
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    # Markazlashtirilgan xavfsizlik to'sig'i: har qanday handler
+    # ReplyKeyboardMarkup'ni guruhga yuborishga urinsa ham, bu chiqayotgan
+    # so'rov darajasida ushlab qolinadi va ReplyKeyboardRemove()ga
+    # almashtiriladi (bot/middlewares/reply_keyboard_guard.py).
+    bot.session.middleware.register(strip_group_reply_keyboards)
     dp = Dispatcher(storage=MemoryStorage())
 
     api_client = ApiClient(base_url=BACKEND_URL)
