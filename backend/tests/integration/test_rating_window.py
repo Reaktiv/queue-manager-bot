@@ -36,13 +36,15 @@ async def client(session):
     app.dependency_overrides.clear()
 
 
-async def _setup_completed_task(client, session) -> int:
+async def _setup_completed_task(client, session) -> tuple[int, int]:
     """
     Admin + a'zoni ro'yxatdan o'tkazadi, guruh ochadi, vazifa yaratadi va
-    admin uni bajaradi. Guruhning `telegram_chat_id` yo'qligi sababli
-    darhol AVTOMATIK tasdiqlanadi (guruh ovoz berish shart emas) - bu
-    baholash oynasini sinash uchun eng qisqa yo'l. Yaratilgan
-    `TaskCompletion.id`ni qaytaradi.
+    navbat boshidagi a'zo uni bajaradi. Guruhning `telegram_chat_id`
+    yo'qligi sababli darhol AVTOMATIK tasdiqlanadi (guruh ovoz berish
+    shart emas) - bu baholash oynasini sinash uchun eng qisqa yo'l.
+
+    Qaytaradi: `(completion_id, rater_telegram_id)` - `rater_telegram_id`
+    bajarmagan (demak, baho bera oladigan) a'zoning telegram_id'si.
     """
     await client.post(
         "/api/v1/users/register",
@@ -81,10 +83,16 @@ async def _setup_completed_task(client, session) -> int:
     )
     task_id = resp.json()["data"]["task_id"]
 
-    # Admin navbatning boshida (birinchi qo'shilgan) - shu bajaradi.
+    # DIQQAT: a'zolar endi TASODIFIY tartibda navbatga qo'yiladi (adolatli
+    # boshlanish uchun) - "admin doim boshda" deb taxmin qilib bo'lmaydi.
+    # Navbat boshidagi haqiqiy a'zoni topib, ANA SHU nomidan bajaramiz.
+    resp = await client.get(f"/api/v1/tasks/{task_id}/queue/preview", headers=HEADERS)
+    front_full_name = resp.json()["data"][0]["full_name"]
+    front_telegram_id = 6001 if front_full_name == "Admin" else 6002
+
     resp = await client.post(
         f"/api/v1/completion/{task_id}",
-        data={"telegram_id": "6001"},
+        data={"telegram_id": str(front_telegram_id)},
         headers=HEADERS,
     )
     assert resp.json()["success"] is True
@@ -93,15 +101,17 @@ async def _setup_completed_task(client, session) -> int:
     result = await session.execute(select(TaskCompletion).order_by(TaskCompletion.id.desc()))
     completion = result.scalars().first()
     assert completion is not None
-    return completion.id
+
+    rater_telegram_id = 6002 if front_telegram_id == 6001 else 6001
+    return completion.id, rater_telegram_id
 
 
 async def test_rating_accepted_within_one_hour_window(client, session):
-    completion_id = await _setup_completed_task(client, session)
+    completion_id, rater_telegram_id = await _setup_completed_task(client, session)
 
     resp = await client.post(
         f"/api/v1/completion/{completion_id}/rate",
-        json={"telegram_id": 6002, "stars": 5},
+        json={"telegram_id": rater_telegram_id, "stars": 5},
         headers=HEADERS,
     )
     body = resp.json()
@@ -110,7 +120,7 @@ async def test_rating_accepted_within_one_hour_window(client, session):
 
 
 async def test_rating_rejected_after_one_hour_window(client, session):
-    completion_id = await _setup_completed_task(client, session)
+    completion_id, rater_telegram_id = await _setup_completed_task(client, session)
 
     completion = await session.get(TaskCompletion, completion_id)
     completion.resolved_at = datetime.now(timezone.utc) - timedelta(hours=1, minutes=1)
@@ -118,7 +128,7 @@ async def test_rating_rejected_after_one_hour_window(client, session):
 
     resp = await client.post(
         f"/api/v1/completion/{completion_id}/rate",
-        json={"telegram_id": 6002, "stars": 5},
+        json={"telegram_id": rater_telegram_id, "stars": 5},
         headers=HEADERS,
     )
     body = resp.json()
@@ -128,7 +138,7 @@ async def test_rating_rejected_after_one_hour_window(client, session):
 
 async def test_rating_accepted_at_fifty_nine_minutes(session, client):
     """Chegara holati: 59 daqiqada hali baho qabul qilinishi kerak."""
-    completion_id = await _setup_completed_task(client, session)
+    completion_id, rater_telegram_id = await _setup_completed_task(client, session)
 
     completion = await session.get(TaskCompletion, completion_id)
     completion.resolved_at = datetime.now(timezone.utc) - timedelta(minutes=59)
@@ -136,7 +146,7 @@ async def test_rating_accepted_at_fifty_nine_minutes(session, client):
 
     resp = await client.post(
         f"/api/v1/completion/{completion_id}/rate",
-        json={"telegram_id": 6002, "stars": 4},
+        json={"telegram_id": rater_telegram_id, "stars": 4},
         headers=HEADERS,
     )
     assert resp.json()["success"] is True

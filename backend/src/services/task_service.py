@@ -3,6 +3,8 @@ Service Layer: Vazifa yaratish, tahrirlash va admin navbat amallari
 (skip/swap/reset/transfer). Har bir amal audit_log'ga yoziladi.
 """
 
+import random
+
 from ..infrastructure.models.task import Task
 from ..repositories.audit_repository import AuditRepository
 from ..repositories.group_repository import GroupRepository
@@ -195,8 +197,13 @@ class TaskService:
         )
 
         if member_ids is None:
+            # Aniq tartib berilmagan bo'lsa - guruhning barcha faol
+            # a'zolari TASODIFIY tartibda navbatga qo'yiladi (adolatli
+            # boshlanish nuqtasi). Admin keyin "🔄 Navbat tartibi" orqali
+            # xohlagan tartibga qayta joylashtira oladi.
             members = await self._group_repo.list_members(group_id)
             member_ids = [m.id for m in members]
+            random.shuffle(member_ids)
 
         if member_ids:
             await self._task_repo.add_queue_entries(task.id, member_ids)

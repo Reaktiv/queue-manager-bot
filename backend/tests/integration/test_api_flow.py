@@ -102,16 +102,21 @@ async def test_full_flow_register_group_task_complete(client):  # 1) Admin ro'yx
     assert task_body["success"] is True
     task_id = task_body["data"]["task_id"]
 
-    # 7) Navbatni ko'ramiz - admin boshda bo'lishi kerak (birinchi qo'shilgan)
+    # 7) Navbatni ko'ramiz - kimdir boshda va qulflangan bo'lishi kerak.
+    # DIQQAT: aniq tartib berilmaganda a'zolar endi TASODIFIY tartibda
+    # navbatga qo'yiladi (adolatli boshlanish uchun) - shuning uchun bu
+    # yerda "admin doim boshda" deb qat'iy taxmin qilib bo'lmaydi, aksincha
+    # navbat boshidagi haqiqiy a'zoni topib, ANA SHU nomidan bajaramiz.
     resp = await client.get(f"/api/v1/tasks/{task_id}/queue/preview", headers=HEADERS)
     entries = resp.json()["data"]
     assert len(entries) == 2
     assert entries[0]["is_locked"] is True
+    front_telegram_id = 5001 if entries[0]["full_name"] == "Admin User" else 5002
 
     # 8) Rasmsiz (require_photo=False) vazifani bajarish
     resp = await client.post(
         f"/api/v1/completion/{task_id}",
-        data={"telegram_id": "5001"},
+        data={"telegram_id": str(front_telegram_id)},
         headers=HEADERS,
     )
     assert resp.status_code == 200

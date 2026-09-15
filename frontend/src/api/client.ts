@@ -190,8 +190,12 @@ export const api = {
   listTasks: (groupId: number) =>
     request<TaskSummary[]>(`/api/v1/tasks/group/${groupId}`),
 
+  // `/queue/preview` ATAYLAB faqat birinchi 3 a'zoni qaytaradi (tezkor
+  // ko'rinish uchun) - 4+ a'zoli guruhda admin panelidagi to'liq ro'yxat
+  // shu sababli kesilib qolardi. Sheet doim TO'LIQ navbatni ko'rsatishi
+  // kerak, shuning uchun `/queue/full` ishlatiladi.
   getQueuePreview: (taskId: number) =>
-    request<QueueEntry[]>(`/api/v1/tasks/${taskId}/queue/preview`),
+    request<QueueEntry[]>(`/api/v1/tasks/${taskId}/queue/full`),
 
   createTask: (payload: {
     telegram_id: number;

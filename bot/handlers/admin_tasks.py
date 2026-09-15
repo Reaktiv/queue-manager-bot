@@ -111,10 +111,19 @@ async def handle_task_menu(callback: CallbackQuery, state: FSMContext, api_clien
 
 @router.callback_query(F.data.startswith("preview:"))
 async def handle_preview_queue(callback: CallbackQuery, api_client: ApiClient) -> None:
+    """
+    DIQQAT: ilgari bu yerda `get_queue_preview` (`/queue/preview`) chaqirilardi
+    - u ATAYLAB faqat BIRINCHI 3 ta a'zoni qaytaradi (joriy + keyingi 2 -
+    tezkor ko'rinish uchun). Guruhda 4+ a'zo bo'lganda oxirgi(lar) hech
+    qachon ko'rsatilmasdi, foydalanuvchi buni "bitta odam navbatga
+    qo'shilmagan" deb qabul qilardi - aslida hammasi navbatda bor edi,
+    faqat ro'yxat qirqib tashlanardi. Endi to'liq navbat (`/queue/full`)
+    ko'rsatiladi.
+    """
     if callback.data is None or callback.message is None:
         return
     task_id = int(callback.data.split(":")[1])
-    result = await api_client.get_queue_preview(task_id)
+    result = await api_client.get_full_queue(task_id)
     entries = result.get("data") or []
 
     if not entries:

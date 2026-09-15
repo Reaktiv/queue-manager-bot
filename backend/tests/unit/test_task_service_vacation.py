@@ -308,3 +308,56 @@ async def test_admin_skip_does_not_crash_when_assignment_has_penalty(session):
     reloaded = await AssignmentRepository(session).get_by_id(assignment.id)
     assert reloaded is not None
     assert reloaded.status == TaskStatus.OVERDUE
+
+
+async def test_create_task_without_member_ids_includes_all_active_members(session):
+    """
+    Regressiya: `member_ids` berilmaganda (oddiy vazifa yaratish oqimi -
+    bot va Mini App hech qachon aniq ro'yxat yubormaydi, har doim shu
+    yo'lni ishlatadi) guruhning BARCHA faol a'zolari navbatga qo'shilishi
+    kerak. Birortasi ham qolib ketmasin - 4 a'zoli guruhda faqat 3 tasi
+    qo'shilib qolgan haqiqiy holat shu testda qamrab olinadi.
+    """
+    owner, group, member_ids = await _setup_group_with_members(session, [False, False, False, False])
+    task_service = _make_task_service(session)
+
+    task = await task_service.create_task_with_queue(
+        group_id=group.id,
+        name="Task",
+        created_by_user_id=owner.id,
+    )
+
+    full_queue = await task_service._queue_repo.get_queue_for_task(task.id)
+    assert {e.member_id for e in full_queue} == set(member_ids)
+    assert len(full_queue) == len(member_ids)
+
+
+async def test_create_task_without_member_ids_shuffles_order(session, monkeypatch):
+    """
+    Aniq tartib berilmaganda a'zolar TASODIFIY tartibda navbatga
+    qo'yiladi (adolatli boshlanish nuqtasi - admin keyin "Navbat tartibi"
+    orqali xohlagan holga qayta joylashtira oladi). `random.shuffle`
+    aynan shu a'zolar ro'yxati bilan chaqirilishini tekshiradi.
+    """
+    owner, group, member_ids = await _setup_group_with_members(session, [False, False, False, False])
+    task_service = _make_task_service(session)
+
+    import backend.src.services.task_service as task_service_module
+
+    calls: list[list[int]] = []
+    original_shuffle = task_service_module.random.shuffle
+
+    def spy_shuffle(seq):
+        calls.append(list(seq))
+        original_shuffle(seq)
+
+    monkeypatch.setattr(task_service_module.random, "shuffle", spy_shuffle)
+
+    await task_service.create_task_with_queue(
+        group_id=group.id,
+        name="Task",
+        created_by_user_id=owner.id,
+    )
+
+    assert len(calls) == 1
+    assert set(calls[0]) == set(member_ids)
