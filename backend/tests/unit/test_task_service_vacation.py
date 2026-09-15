@@ -55,11 +55,11 @@ class FakeNotificationService:
     async def build_message(self, group_id: int, template_type: str, language: str = "uz", **placeholders):
         return f"{template_type}:{placeholders['user']}:{placeholders['task']}:{placeholders['group']}"
 
-    async def send_private_message(self, telegram_id: int, text: str) -> bool:
+    async def send_private_message(self, telegram_id: int, text: str, reply_markup=None) -> bool:
         self.messages.append(("private", telegram_id, text))
         return True
 
-    async def send_group_message(self, telegram_chat_id: int, text: str) -> bool:
+    async def send_group_message(self, telegram_chat_id: int, text: str, reply_markup=None) -> bool:
         self.messages.append(("group", telegram_chat_id, text))
         return True
 

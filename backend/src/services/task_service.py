@@ -79,7 +79,15 @@ class TaskService:
             task=task.name,
             group=group.name,
         )
-        await self._notification_service.send_private_message(user.telegram_id, text)
+        # "✅ Bajarildi" tugmasi - scheduler/jobs.py dagi eslatma bilan bir
+        # xil: foydalanuvchi shu xabardan to'g'ridan-to'g'ri bajarish
+        # oqimini boshlay oladi.
+        complete_keyboard = {
+            "inline_keyboard": [[{"text": "✅ Bajarildi", "callback_data": f"complete:{task.id}"}]]
+        }
+        await self._notification_service.send_private_message(
+            user.telegram_id, text, reply_markup=complete_keyboard
+        )
 
         if group.telegram_chat_id:
             group_text = await self._notification_service.build_message(

@@ -59,19 +59,23 @@ def _format_task_date(date_str: str | None) -> str:
 
 def _future_task_text(task: dict) -> str:
     days = task.get("days_left", 0)
+    date_label = _format_task_date(task.get("next_execution_date"))
     if days == 1:
-        return f"📋 <b>{task['name']}</b> vazifasidagi navbatingizga 1 kun qoldi (Ertaga)."
+        return f"📋 <b>{task['name']}</b>\n\n📅 Navbatingiz ertaga, {date_label} kuni keladi."
     if days % 7 == 0 and days > 0:
         weeks = days // 7
-        return f"📋 <b>{task['name']}</b> vazifasidagi navbatingizga {weeks} hafta bor."
-    return f"📋 <b>{task['name']}</b> vazifasidagi navbatingizga hali {days} kun bor."
+        return f"📋 <b>{task['name']}</b>\n\n📅 Navbatingiz {date_label} kuni keladi ({weeks} hafta qoldi)."
+    return f"📋 <b>{task['name']}</b>\n\n📅 Navbatingiz {date_label} kuni keladi ({days} kun qoldi)."
 
 
 def _render_task_view(task: dict, lang: str) -> tuple[str, InlineKeyboardMarkup]:
     """Vazifaning boshlang'ich ko'rinishini (matn + tugmalar) qayta tiklaydi -
-    "orqaga" bosilganda yoki tasdiqlash rad etilganda shu holatga qaytiladi."""
+    "orqaga" bosilganda yoki tasdiqlash rad etilganda shu holatga qaytiladi.
+    Har ikki holatda ham aniq sana ko'rsatiladi - foydalanuvchi
+    "qachongacha bajarishim kerak" degan savolga darhol javob topsin."""
     if task.get("is_active_now", True):
-        return t("task_assigned_to_you", lang=lang, task=task["name"]), task_action_keyboard(task["id"])
+        text = t("task_assigned_to_you", lang=lang, task=task["name"]) + "\n\n📅 Muddat: bugun."
+        return text, task_action_keyboard(task["id"])
     return _future_task_text(task), future_task_action_keyboard(task["id"])
 
 

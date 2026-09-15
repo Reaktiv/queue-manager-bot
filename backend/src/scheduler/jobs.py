@@ -89,7 +89,18 @@ async def _send_reminder_for_task(
         group=group.name,
     )
 
-    await notification_service.send_private_message(user.telegram_id, text)
+    # Shaxsiy eslatmaga "✅ Bajarildi" tugmasi qo'shiladi - foydalanuvchi
+    # /mytasks'ga qaytmasdan, to'g'ridan-to'g'ri shu xabardan bosib rasm
+    # yuklash oqimini boshlay oladi. Callback formati botning
+    # `complete:{task_id}` handleri (my_tasks.py) bilan bir xil - qaysi
+    # jarayon xabarni yuborganidan qat'i nazar, tugma bosilganda kelgan
+    # callback bot yangilanishlar oqimidan odatdagidek ishlanadi.
+    complete_keyboard = {
+        "inline_keyboard": [[{"text": "✅ Bajarildi", "callback_data": f"complete:{task.id}"}]]
+    }
+    await notification_service.send_private_message(
+        user.telegram_id, text, reply_markup=complete_keyboard
+    )
     logger.info("reminder_sent_private", task_id=task.id, user_telegram_id=user.telegram_id)
 
     if group.telegram_chat_id:

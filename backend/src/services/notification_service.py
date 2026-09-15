@@ -40,8 +40,21 @@ class NotificationService:
         template = await self._template_repo.get_template(group_id, template_type, language)
         return self.render(template, **placeholders)
 
-    async def send_private_message(self, telegram_id: int, text: str) -> bool:
-        """Foydalanuvchining shaxsiy chatiga xabar yuboradi."""
+    async def send_private_message(
+        self, telegram_id: int, text: str, reply_markup: dict | None = None
+    ) -> bool:
+        """
+        Foydalanuvchining shaxsiy chatiga xabar yuboradi. `reply_markup`
+        berilsa (masalan bir tugmali inline klaviatura), Telegram Bot
+        API'ning xom JSON shakli sifatida to'g'ridan-to'g'ri yuboriladi -
+        bu yerda aiogram Bot obyekti yo'q (scheduler alohida jarayon),
+        shuning uchun oddiy dict yetarli: masalan
+        `{"inline_keyboard": [[{"text": "...", "callback_data": "..."}]]}`.
+        Botning aiogram qismi bu tugma bosilganda kelgan callback'ni
+        odatdagidek qabul qiladi - xabar qaysi yo'l bilan yuborilganidan
+        qat'i nazar, callback marshrutlash bot yangilanishlar oqimidan
+        ishlaydi.
+        """
         if not settings.BOT_TOKEN:
             logger.warning("bot_token_missing", telegram_id=telegram_id)
             return False
@@ -50,12 +63,14 @@ class NotificationService:
             logger.info("mock_telegram_send", telegram_id=telegram_id, text=text)
             return True
 
+        payload: dict = {"chat_id": telegram_id, "text": text, "parse_mode": "HTML"}
+        if reply_markup is not None:
+            payload["reply_markup"] = reply_markup
+
         url = f"{TELEGRAM_API_BASE.format(token=settings.BOT_TOKEN)}/sendMessage"
         async with httpx.AsyncClient(timeout=10.0) as client:
             try:
-                response = await client.post(
-                    url, json={"chat_id": telegram_id, "text": text, "parse_mode": "HTML"}
-                )
+                response = await client.post(url, json=payload)
                 if response.status_code != 200:
                     logger.warning(
                         "telegram_send_failed", status=response.status_code, body=response.text
@@ -66,6 +81,8 @@ class NotificationService:
                 logger.error("telegram_send_error", error=str(exc))
                 return False
 
-    async def send_group_message(self, telegram_chat_id: int, text: str) -> bool:
+    async def send_group_message(
+        self, telegram_chat_id: int, text: str, reply_markup: dict | None = None
+    ) -> bool:
         """Guruh chatiga xabar yuboradi (agar bot shu guruhga qo'shilgan bo'lsa)."""
-        return await self.send_private_message(telegram_chat_id, text)
+        return await self.send_private_message(telegram_chat_id, text, reply_markup=reply_markup)
