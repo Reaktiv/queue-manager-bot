@@ -6,10 +6,9 @@ Har bir guruh mustaqil: o'z a'zolari, vazifalari, navbatlari, sozlamalari.
 
 import enum
 from datetime import datetime
-from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, DateTime, Enum, ForeignKey, Index, Numeric, String, func, text
+from sqlalchemy import BigInteger, DateTime, Enum, ForeignKey, Index, String, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db.session import Base
@@ -68,16 +67,6 @@ class Member(Base):
     joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     left_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     is_active: Mapped[bool] = mapped_column(default=True)
-
-    rating_stars_cache: Mapped[Decimal] = mapped_column(Numeric(3, 2), default=Decimal("5.00"))
-    """
-    Foydalanuvchi profilidagi yakuniy daraja (1.00 - 5.00), 5.00 dan
-    boshlanadi. `RatingService` tomonidan har safar yangi baho kelganda
-    yoki jarima qo'shilganda qayta hisoblanadi:
-        daraja = clamp(guruhdoshlar bergan o'rtacha ball - jarima soni, 1, 5)
-    Bu ustun faqat KESH - har safar profilni ochganda butun tarixni qayta
-    yig'ib hisoblash shart bo'lmasin deb saqlanadi.
-    """
 
     user: Mapped["User"] = relationship(back_populates="memberships")
     group: Mapped["Group"] = relationship(back_populates="members")

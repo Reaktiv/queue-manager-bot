@@ -121,7 +121,7 @@ async def test_clear_error_logs_requires_super_admin(client, monkeypatch):
     assert resp.status_code == 403
 
 
-async def test_get_user_profile_returns_group_membership_and_rating(client, monkeypatch):
+async def test_get_user_profile_returns_group_membership(client, monkeypatch):
     admin_user_id = await _register_super_admin(client, monkeypatch)
     admin_token = create_access_token(admin_user_id, is_super_admin=True)
 
@@ -153,7 +153,6 @@ async def test_get_user_profile_returns_group_membership_and_rating(client, monk
     group_entry = body["data"]["groups"][0]
     assert group_entry["group_id"] == group_data["group_id"]
     assert group_entry["role"] == "admin"
-    assert group_entry["rating_stars"] == 5.0
 
 
 async def test_get_user_profile_unknown_id_returns_failure(client, monkeypatch):
@@ -193,10 +192,10 @@ async def test_maintenance_mode_toggle_via_service(session):
     xuddi shu mantiq.
     """
     from backend.src.infrastructure.models.user import User
+    from backend.src.repositories.assignment_repository import AssignmentRepository
     from backend.src.repositories.audit_repository import AuditRepository
     from backend.src.repositories.group_repository import GroupRepository
     from backend.src.repositories.notification_repository import NotificationTemplateRepository
-    from backend.src.repositories.penalty_repository import PenaltyRepository
     from backend.src.repositories.settings_repository import SettingsRepository
     from backend.src.repositories.task_repository import TaskRepository
     from backend.src.repositories.user_repository import UserRepository
@@ -211,7 +210,7 @@ async def test_maintenance_mode_toggle_via_service(session):
         user_repository=UserRepository(session),
         group_repository=GroupRepository(session),
         task_repository=TaskRepository(session),
-        penalty_repository=PenaltyRepository(session),
+        assignment_repository=AssignmentRepository(session),
         settings_repository=SettingsRepository(session),
         audit_repository=AuditRepository(session),
         notification_service=NotificationService(NotificationTemplateRepository(session)),

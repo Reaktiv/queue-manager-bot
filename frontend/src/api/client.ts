@@ -188,8 +188,11 @@ export const api = {
   listMembers: (groupId: number) =>
     request<MemberSummary[]>(`/api/v1/groups/${groupId}/members`),
 
+  // `include_inactive=true`: admin panelida "Vazifa faol" tugmasini
+  // o'chirib saqlagan vazifa ro'yxatdan g'oyib bo'lib qolmasin - aks
+  // holda uni qayta yoqishning iloji qolmasdi (backend/tasks.py'dagi izoh).
   listTasks: (groupId: number) =>
-    request<TaskSummary[]>(`/api/v1/tasks/group/${groupId}`),
+    request<TaskSummary[]>(`/api/v1/tasks/group/${groupId}?include_inactive=true`),
 
   // `/queue/preview` ATAYLAB faqat birinchi 3 a'zoni qaytaradi (tezkor
   // ko'rinish uchun) - 4+ a'zoli guruhda admin panelidagi to'liq ro'yxat
@@ -213,6 +216,27 @@ export const api = {
   }) =>
     request<{ task_id: number; name: string }>("/api/v1/tasks/", {
       method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  updateTask: (
+    taskId: number,
+    payload: {
+      telegram_id: number;
+      name?: string;
+      description?: string | null;
+      schedule_interval_days?: number;
+      next_execution_date?: string | null;
+      require_photo?: boolean;
+      reminder_interval_min_minutes?: number;
+      reminder_interval_max_minutes?: number;
+      reminder_start_hour?: number;
+      reminder_end_hour?: number;
+      is_active?: boolean;
+    }
+  ) =>
+    request<null>(`/api/v1/tasks/${taskId}`, {
+      method: "PATCH",
       body: JSON.stringify(payload),
     }),
 
@@ -288,10 +312,10 @@ export const api = {
   listErrorLogs: () => request<ErrorLog[]>("/api/v1/superadmin/logs"),
 
   /*
-   * Yulduz bahosi (rate) endpointi ATAYLAB shu yerda yo'q: baholash bot
-   * ichida, guruh chatidagi inline tugmalar orqali sodir bo'ladi
-   * (bot/handlers/ratings.py) - Mini App'da alohida baholash amali yo'q,
-   * shuning uchun ishlatilmaydigan API klient metodini qo'shmaymiz.
+   * Ovoz berish (vote) endpointi ATAYLAB shu yerda yo'q: tasdiqlash bot
+   * ichida, guruh chatidagi ✅/❌ tugmalari orqali sodir bo'ladi
+   * (bot/handlers/votes.py) - Mini App'da alohida ovoz berish amali
+   * yo'q, shuning uchun ishlatilmaydigan API klient metodini qo'shmaymiz.
    */
   clearErrorLogs: () =>
     request<{ deleted_count: number }>("/api/v1/superadmin/logs", { method: "DELETE" }),

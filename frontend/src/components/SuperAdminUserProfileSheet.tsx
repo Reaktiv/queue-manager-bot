@@ -1,6 +1,5 @@
 import { api } from "../api/client";
 import { DataList, ListRow } from "./DataList";
-import { StarRating } from "./Icon";
 import { Avatar, Badge, Empty, ErrorState, Sheet } from "./ui";
 import { ListSkeleton } from "./Skeletons";
 import { useAsyncData } from "../hooks/useAsyncData";
@@ -19,8 +18,8 @@ interface Props {
  *
  * `ProfileSheet`dan farqi: bu yerda foydalanuvchi bitta guruhga emas,
  * global (bot darajasida) qaraladi - shuning uchun BIR EMAS, u a'zo
- * bo'lgan HAR BIR guruh o'z reytingi bilan alohida ko'rsatiladi (bitta
- * odam turli guruhda turlicha baholangan bo'lishi mumkin).
+ * bo'lgan HAR BIR guruh alohida ko'rsatiladi (bitta odam bir nechta
+ * guruhda a'zo bo'lishi mumkin).
  */
 export function SuperAdminUserProfileSheet({ open, onClose, userId }: Props) {
   const profile = useAsyncData<SuperAdminUserProfile>(
@@ -85,16 +84,6 @@ export function SuperAdminUserProfileSheet({ open, onClose, userId }: Props) {
                       index={i}
                       title={g.group_name}
                       subtitle={g.role === "admin" ? "Admin" : "A'zo"}
-                      trailing={
-                        g.rating_stars !== null ? (
-                          <div className="flex items-center gap-1">
-                            <StarRating value={g.rating_stars} size={14} />
-                            <span className="tnum text-caption text-muted">
-                              {g.rating_stars.toFixed(1)}
-                            </span>
-                          </div>
-                        ) : undefined
-                      }
                     />
                   ))}
                 </DataList>

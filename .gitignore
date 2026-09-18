@@ -1,12 +1,9 @@
 # --- Maxfiy sozlamalar ---
-# Naqshlar ataylab keng: `.env` va `**/.env` istalgan chuqurlikdagi faylni,
-# `.env.*` / `**/.env.*` esa variantlarni (.env.local, .env.production)
-# qamrab oladi. Namuna fayl kerak bo'lsa uni `.env.example` emas,
-# `env.example` deb nomlang - aks holda u ham e'tiborsiz qolib ketadi.
 .env
 **/.env
 .env.*
-**/.env.*
+.env.local
+.env.*.local
 docker-compose.override.yml
 
 # --- Python ---

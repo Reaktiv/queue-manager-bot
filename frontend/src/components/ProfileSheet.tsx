@@ -1,5 +1,4 @@
 import { api } from "../api/client";
-import { StarRating } from "./Icon";
 import {
   Avatar,
   Badge,
@@ -22,7 +21,7 @@ interface Props {
 }
 
 /**
- * A'zo profili: 5 yulduzli daraja + bajarish statistikasi.
+ * A'zo profili: bajarish statistikasi.
  *
  * Ham a'zoning o'zi (MemberDashboard - o'z profilini ko'rish uchun),
  * ham admin (AdminDashboard - boshqa a'zoning profilini ko'rish uchun)
@@ -57,46 +56,15 @@ export function ProfileSheet({ open, onClose, memberId, fullName, role }: Props)
           <ErrorState message={stats.error} onRetry={stats.reload} />
         ) : (
           stats.data && (
-            <>
-              {/* Yulduzli daraja - eng ko'zga tashlanadigan joyda,
-                  chunki bu "profil"ning asosiy yangi tushunchasi. */}
-              <Surface className="flex flex-col items-center gap-2 py-5 text-center">
-                <StarRating value={stats.data.rating_stars} size={28} />
-                <p className="tnum text-title-1 text-ink">
-                  {stats.data.rating_stars.toFixed(2)}{" "}
-                  <span className="text-callout font-normal text-muted">/ 5</span>
-                </p>
-                <p className="max-w-[28ch] text-caption leading-relaxed text-muted">
-                  {stats.data.rating_count > 0
-                    ? `${stats.data.rating_count} guruhdosh baho bergan (o'rtacha ${stats.data.peer_rating_avg?.toFixed(2)}/5)`
-                    : "Hali hech kim sifat bahosi bermagan"}
-                  {stats.data.penalty_points > 0 &&
-                    ` · ${stats.data.penalty_points} marta muddatini o'tkazib yuborgan`}
-                </p>
-              </Surface>
-
-              <Surface className="flex items-center gap-4">
-                <Ring value={stats.data.completion_rate} label="bajarildi" />
-                <div className="grid min-w-0 flex-1 gap-2.5">
-                  <LabelValueRow
-                    label="Bajarilgan"
-                    value={`${stats.data.completed} / ${stats.data.total}`}
-                  />
-                  <div className="h-px bg-line" />
-                  <LabelValueRow
-                    label="Joriy jarima"
-                    value={stats.data.current_penalty}
-                    tone="warning"
-                  />
-                  <div className="h-px bg-line" />
-                  <LabelValueRow
-                    label="O'tkazib yuborilgan"
-                    value={stats.data.total_missed}
-                    tone="danger"
-                  />
-                </div>
-              </Surface>
-            </>
+            <Surface className="flex items-center gap-4">
+              <Ring value={stats.data.completion_rate} label="bajarildi" />
+              <div className="grid min-w-0 flex-1 gap-2.5">
+                <LabelValueRow
+                  label="Bajarilgan"
+                  value={`${stats.data.completed} / ${stats.data.total}`}
+                />
+              </div>
+            </Surface>
           )
         )}
       </div>

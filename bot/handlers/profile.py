@@ -83,27 +83,6 @@ async def handle_profile(message: Message, api_client: ApiClient) -> None:
     phone = user_data.get("phone_number")
     lines.append(f"Telefon: <code>{phone}</code>" if phone else "Telefon: ulashilmagan")
 
-    # Reyting a'zo bo'lgan HAR BIR guruh uchun alohida ko'rsatiladi (ular
-    # mustaqil - bitta guruhda 5.0, boshqasida 3.5 bo'lishi mumkin). FSM
-    # holatidagi "faol guruh"ga tayanmaymiz - u xotirada saqlanadi va bot
-    # qayta ishga tushganda yo'qoladi, profil esa har doim to'g'ri
-    # ko'rsatilishi kerak.
-    groups_result = await api_client.list_my_groups(user.id)
-    ratings: list[tuple[str, float]] = []
-    for group in groups_result.get("data") or []:
-        stats_result = await api_client.get_member_statistics(group["member_id"])
-        if stats_result.get("success"):
-            rating = (stats_result.get("data") or {}).get("rating_stars")
-            if rating is not None:
-                ratings.append((group["name"], rating))
-
-    if len(ratings) == 1:
-        lines.append(f"Reyting: ⭐ {ratings[0][1]:.2f} / 5")
-    elif len(ratings) > 1:
-        lines.append("")
-        lines.append("Reyting (guruhlar bo'yicha):")
-        lines.extend(f"• {name}: ⭐ {rating:.2f} / 5" for name, rating in ratings)
-
     await message.answer("\n".join(lines))
 
     # Telefon so'rash tugmasi ham doimiy klaviatura - guruhga chiqib

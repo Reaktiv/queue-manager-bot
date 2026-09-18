@@ -32,9 +32,7 @@ async def handle_stats(message: Message, state: FSMContext, api_client: ApiClien
     await message.answer(
         f"{t('stats_header', lang=lang)}\n\n"
         f"✅ Bajarilgan: {stats['completed']} / {stats['total']}\n"
-        f"📈 Bajarish foizi: {stats['completion_rate']}%\n"
-        f"⚠️ Joriy jarima: {stats['current_penalty']} ball\n"
-        f"🔴 Jami o'tkazib yuborilgan: {stats['total_missed']}"
+        f"📈 Bajarish foizi: {stats['completion_rate']}%"
     )
 
 

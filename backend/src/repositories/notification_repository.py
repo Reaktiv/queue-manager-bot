@@ -10,7 +10,6 @@ from ..infrastructure.models.audit import NotificationTemplate
 DEFAULT_TEMPLATES: dict[str, str] = {
     "reminder": '⏰ Eslatma: {user}, "{task}" vazifasini bajarish vaqti keldi! ({group})',
     "completed": '✅ {user} "{task}" vazifasini muvaffaqiyatli bajardi.',
-    "penalty": '⚠️ {user} "{task}" vazifasini muddatida bajarmadi. Jarima ball qo\'shildi.',
     "overdue": '🔴 "{task}" vazifasi muddati o\'tdi va hali ham {user} zimmasida.',
     "queue_changed": '🔄 "{task}" navbati yangilandi. Endi galatda: {user}.',
     "task_assigned": '📋 {user}, sizga "{task}" vazifasi tayinlandi ({date}).',

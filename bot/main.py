@@ -8,7 +8,7 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import ErrorEvent
 
-from handlers import common, registration, groups, admin_tasks, my_tasks, profile, ratings, stats
+from handlers import common, registration, groups, admin_tasks, my_tasks, profile, votes, stats
 from middlewares.reply_keyboard_guard import strip_group_reply_keyboards
 from services.api_client import ApiClient
 from dotenv import load_dotenv
@@ -78,7 +78,7 @@ async def main() -> None:
     dp.include_router(groups.router)
     dp.include_router(admin_tasks.router)
     dp.include_router(my_tasks.router)
-    dp.include_router(ratings.router)
+    dp.include_router(votes.router)
     dp.include_router(stats.router)
 
     logger.info("bot_starting")

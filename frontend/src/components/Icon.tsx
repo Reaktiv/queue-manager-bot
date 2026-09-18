@@ -56,6 +56,15 @@ const GLYPHS = {
       {P("M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2", "d")}
     </>
   ),
+  edit: (
+    <>
+      {P(
+        "M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z",
+        "a"
+      )}
+      {P("M15 5 19 9", "b")}
+    </>
+  ),
   skip: (
     <>
       {P("M5 4v16l11-8z", "a")}
@@ -281,30 +290,5 @@ export function IconTile({ name }: { name: IconName }) {
     <span className="grid h-8 w-8 shrink-0 place-items-center rounded-pill bg-surface-2 text-muted">
       <Icon name={name} size={16} />
     </span>
-  );
-}
-
-/*
- * 5 yulduzli profil darajasini ko'rsatadi (RatingService'ning
- * `rating_stars` qiymati). Yaqin butun songa yaxlitlanadi - yarim
- * yulduz aniqligi so'ralmagan va aniq son (`value.toFixed(2)`)
- * baribir yonida ko'rsatiladi, shuning uchun aniqlik yo'qolmaydi.
- */
-export function StarRating({ value, size = 18 }: { value: number; size?: number }) {
-  const filled = Math.round(Math.max(0, Math.min(5, value)));
-  return (
-    <div
-      className="flex items-center gap-0.5"
-      role="img"
-      aria-label={`Reyting: 5 dan ${value.toFixed(2)}`}
-    >
-      {Array.from({ length: 5 }).map((_, i) =>
-        i < filled ? (
-          <Icon key={i} name="star" size={size} fill="currentColor" className="text-warning" />
-        ) : (
-          <Icon key={i} name="star" size={size} className="text-muted" />
-        )
-      )}
-    </div>
   );
 }

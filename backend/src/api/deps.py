@@ -10,24 +10,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..infrastructure.db.session import get_db_session
 from ..repositories.assignment_repository import AssignmentRepository
 from ..repositories.audit_repository import AuditRepository
-from ..repositories.completion_rating_repository import CompletionRatingRepository
+from ..repositories.completion_vote_repository import CompletionVoteRepository
 from ..repositories.group_repository import GroupRepository
 from ..repositories.notification_repository import NotificationTemplateRepository
-from ..repositories.penalty_repository import PenaltyRepository
 from ..repositories.queue_repository import QueueRepository
 from ..repositories.settings_repository import SettingsRepository
 from ..repositories.task_repository import TaskRepository
 from ..repositories.user_repository import UserRepository
 from ..services.group_service import GroupService
 from ..services.notification_service import NotificationService
-from ..services.penalty_service import PenaltyService
 from ..services.photo_completion_service import CompletionService
 from ..services.photo_storage_service import PhotoStorageService
 from ..services.queue_service import QueueService
-from ..services.rating_service import RatingService
 from ..services.super_admin_service import SuperAdminService
 from ..services.task_service import TaskService
 from ..services.user_service import UserService
+from ..services.voting_service import VotingService
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
     async for session in get_db_session():
@@ -62,16 +60,8 @@ def get_task_service(session: AsyncSession = Depends(get_session)) -> TaskServic
     )
 
 
-def get_penalty_service(session: AsyncSession = Depends(get_session)) -> PenaltyService:
-    return PenaltyService(PenaltyRepository(session))
-
-
-def get_rating_service(session: AsyncSession = Depends(get_session)) -> RatingService:
-    return RatingService(
-        rating_repository=CompletionRatingRepository(session),
-        penalty_repository=PenaltyRepository(session),
-        group_repository=GroupRepository(session),
-    )
+def get_voting_service(session: AsyncSession = Depends(get_session)) -> VotingService:
+    return VotingService(vote_repository=CompletionVoteRepository(session))
 
 
 def get_notification_service(session: AsyncSession = Depends(get_session)) -> NotificationService:
@@ -86,7 +76,7 @@ def get_completion_service(
     session: AsyncSession = Depends(get_session),
     task_service: TaskService = Depends(get_task_service),
     notification_service: NotificationService = Depends(get_notification_service),
-    rating_service: RatingService = Depends(get_rating_service),
+    voting_service: VotingService = Depends(get_voting_service),
 ) -> CompletionService:
     return CompletionService(
         assignment_repository=AssignmentRepository(session),
@@ -95,22 +85,20 @@ def get_completion_service(
         photo_storage=get_photo_storage_service(),
         notification_service=notification_service,
         user_repository=UserRepository(session),
-        rating_service=rating_service,
+        voting_service=voting_service,
     )
 
 
 def get_super_admin_service(
     session: AsyncSession = Depends(get_session),
     notification_service: NotificationService = Depends(get_notification_service),
-    rating_service: RatingService = Depends(get_rating_service),
 ) -> SuperAdminService:
     return SuperAdminService(
         user_repository=UserRepository(session),
         group_repository=GroupRepository(session),
         task_repository=TaskRepository(session),
-        penalty_repository=PenaltyRepository(session),
+        assignment_repository=AssignmentRepository(session),
         settings_repository=SettingsRepository(session),
         audit_repository=AuditRepository(session),
         notification_service=notification_service,
-        rating_service=rating_service,
     )

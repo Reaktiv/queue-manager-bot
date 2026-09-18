@@ -37,7 +37,7 @@ def task_list_keyboard(tasks: list[dict], action_prefix: str = "task") -> Inline
 def task_action_keyboard(task_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="✅ Bajarildi", callback_data=f"complete:{task_id}")],
+            [InlineKeyboardButton(text="✅ Bajarish", callback_data=f"complete:{task_id}")],
             [InlineKeyboardButton(text="👀 Navbatni ko'rish", callback_data=f"preview:{task_id}")],
             [InlineKeyboardButton(text="👥 Hozirgi navbatlar", callback_data="view_turns")],
         ]
@@ -99,7 +99,7 @@ def admin_task_menu_keyboard(task_id: int) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text="👀 Navbat", callback_data=f"preview:{task_id}")],
             [InlineKeyboardButton(text="⏭ Skip", callback_data=f"admin_skip:{task_id}")],
-            [InlineKeyboardButton(text="🔄 Navbat tartibi", callback_data=f"admin_swap_start:{task_id}")],
+            [InlineKeyboardButton(text="🔄 Navbatni qayta tartiblash", callback_data=f"admin_swap_start:{task_id}")],
             [InlineKeyboardButton(text="⏰ Eslatma sozlamalari", callback_data=f"edit_reminder_start:{task_id}")],
         ]
     )
@@ -116,23 +116,23 @@ def yes_no_keyboard(prefix: str) -> InlineKeyboardMarkup:
     )
 
 
-def star_rating_keyboard(completion_id: int) -> InlineKeyboardMarkup:
+def completion_vote_keyboard(completion_id: int) -> InlineKeyboardMarkup:
     """
-    Bajarilgan vazifaga sifat bahosi qo'yish uchun 1-5 yulduz tugmalari.
-    Vazifa allaqachon rasm yuklangan zahoti tasdiqlangan (guruh ovoz
-    berishi shart emas) - bu tugmalar "bajarildimi?" ga emas, "qanday
-    bajarildi?" degan alohida savolga javob beradi.
-    Bir nechta kishi baho bera olishi uchun tugmalar doimiy qoladi
-    (birinchi bosilgandan keyin ham yo'qolmaydi).
-    Tugma matni "N⭐" ko'rinishida (emoji N marta takrorlanmaydi) - 5 ta
-    tugma bir qatorga sig'ganda ham (masalan tor mobil ekranda) Telegram
-    matnni "..." bilan qirqib qo'ymasligi uchun.
+    Bajarilgan vazifani guruh a'zolari ✅/❌ ovoz berib tasdiqlashi (yoki
+    rad etishi) uchun tugmalar. Bajaruvchidan tashqari faol a'zolarning
+    yarmidan ko'pi "Ha" desa - navbat keyingi a'zoga o'tadi; yarmidan
+    ko'pi "Yo'q" desa - vazifa shu a'zoda qoladi. Ko'pchilik hosil
+    bo'lguncha (yoki 2 soatlik muddat tugaguncha) tugmalar doimiy qoladi -
+    bir nechta kishi ovoz bera olishi kerak.
     """
-    buttons = [
-        InlineKeyboardButton(text=f"{stars}⭐", callback_data=f"rate:{completion_id}:{stars}")
-        for stars in range(1, 6)
-    ]
-    return InlineKeyboardMarkup(inline_keyboard=[buttons[:3], buttons[3:]])
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Ha", callback_data=f"vote:{completion_id}:yes"),
+                InlineKeyboardButton(text="❌ Yo'q", callback_data=f"vote:{completion_id}:no"),
+            ]
+        ]
+    )
 
 
 def member_selection_keyboard(members: list[dict], prefix: str) -> InlineKeyboardMarkup:

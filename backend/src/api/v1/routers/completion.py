@@ -1,16 +1,16 @@
 """
-Presentation Layer: Vazifani rasm bilan yakunlash va sifat bahosi endpointlari.
+Presentation Layer: Vazifani rasm bilan yakunlash va guruh ovoz berish endpointlari.
 
 Bot foydalanuvchidan rasm qabul qilib, shu yerga multipart/form-data
-sifatida yuboradi. Vazifa DARHOL tasdiqlanadi (guruh tasdig'i shart
-emas) - javobda, agar guruhda baholay oladigan boshqa a'zo bo'lsa,
-guruhga yuborish uchun kerakli ma'lumotlar (completion_id,
-telegram_chat_id, ...) qaytadi - botning o'zi rasmni 1-5 yulduz
-baholash tugmalari bilan guruhga yuboradi (`/completion/{id}/rate`).
+sifatida yuboradi. Agar guruhda ovoz bera oladigan boshqa a'zo bo'lsa,
+javobda guruhga yuborish uchun kerakli ma'lumotlar (completion_id,
+telegram_chat_id, ...) qaytadi - botning o'zi rasmni ✅/❌ ovoz berish
+tugmalari bilan guruhga yuboradi (`/completion/{id}/vote`). Aks holda
+topshiriq DARHOL tasdiqlanadi (ovoz berishga hech kim/hech narsa yo'q).
 """
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....api.auth_deps import Identity, ensure_actor_owns_telegram_id, verify_bot_or_mini_app
@@ -29,10 +29,10 @@ from ....services.photo_completion_service import (
     NotQueueOwnerError,
     PendingApprovalError,
 )
-from ....services.rating_service import (
-    RatingNotAllowedError,
-    RatingWindowExpiredError,
-    SelfRatingError,
+from ....services.voting_service import (
+    SelfVoteError,
+    VoteNotAllowedError,
+    VoteWindowExpiredError,
 )
 from ....services.task_service import TaskService
 from ....services.user_service import UserService
@@ -48,9 +48,9 @@ class ApiResponse(BaseModel):
     message: str | None = None
 
 
-class RatingRequest(BaseModel):
+class VoteRequest(BaseModel):
     telegram_id: int
-    stars: int = Field(ge=1, le=5)
+    approve: bool
 
 
 @router.post("/{task_id}", response_model=ApiResponse)
@@ -109,43 +109,43 @@ async def complete_task_with_photo(
     )
 
 
-@router.post("/{completion_id}/rate", response_model=ApiResponse)
-async def rate_completion(
+@router.post("/{completion_id}/vote", response_model=ApiResponse)
+async def vote_completion(
     completion_id: int,
-    payload: RatingRequest,
+    payload: VoteRequest,
     session: AsyncSession = Depends(get_session),
     completion_service: CompletionService = Depends(get_completion_service),
     identity: Identity = Depends(verify_bot_or_mini_app),
 ):
     """
-    Guruh a'zosi bajarilgan topshiriqqa 1-5 yulduz bilan sifat bahosi
-    qo'yadi. Bu vazifaning bajarilishiga (navbat surilishiga) ta'sir
-    qilmaydi - u allaqachon rasm yuklangan zahoti sodir bo'lgan; bu
-    faqat "qanday bajarildi?" degan alohida sifat signali.
+    Guruh a'zosi bajarilgan (hali PENDING) topshiriqqa ✅/❌ ovoz beradi.
+    Bajaruvchidan tashqari faol a'zolarning yarmidan ko'pi "Ha" desa -
+    navbat keyingi a'zoga o'tadi; yarmidan ko'pi "Yo'q" desa - vazifa
+    shu a'zoda qoladi, u qaytadan bajarishi kerak.
     """
     await ensure_actor_owns_telegram_id(identity, payload.telegram_id, session)
 
     try:
-        result = await completion_service.submit_rating(
-            completion_id, payload.telegram_id, payload.stars
+        result = await completion_service.submit_vote(
+            completion_id, payload.telegram_id, payload.approve
         )
     except CompletionNotFoundError:
         return ApiResponse(success=False, message="Topshiriq topilmadi")
-    except RatingNotAllowedError:
+    except VoteNotAllowedError:
         return ApiResponse(
             success=False,
-            message="Faqat guruh tomonidan tasdiqlangan vazifalarga baho berish mumkin",
+            message="Bu topshiriq allaqachon hal qilingan - endi ovoz berish mumkin emas",
         )
-    except RatingWindowExpiredError:
+    except VoteWindowExpiredError:
         return ApiResponse(
             success=False,
-            message="Baholash muddati tugagan - tasdiqlangandan keyin faqat 1 soat ichida baho berish mumkin",
+            message="Ovoz berish muddati tugagan - rasm yuklangandan keyin faqat 2 soat ichida ovoz berish mumkin",
         )
-    except SelfRatingError:
+    except SelfVoteError:
         return ApiResponse(
-            success=False, message="Siz o'zingiz bajargan vazifaga o'zingiz baho bera olmaysiz"
+            success=False, message="Siz o'zingiz bajargan vazifaga o'zingiz ovoz bera olmaysiz"
         )
     except NotGroupMemberError:
         return ApiResponse(success=False, message="Siz bu guruh a'zosi emassiz")
 
-    return ApiResponse(success=True, data=result, message="Bahoyingiz qabul qilindi")
+    return ApiResponse(success=True, data=result, message="Ovozingiz qabul qilindi")
