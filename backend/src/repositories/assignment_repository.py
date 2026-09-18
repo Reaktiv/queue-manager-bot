@@ -5,13 +5,12 @@ TaskCompletion (bajarilgan vazifa tarixi) bilan ishlash.
 
 from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..infrastructure.models.task import (
     CompletionApprovalStatus,
-    Penalty,
     TaskAssignment,
     TaskCompletion,
     TaskStatus,
@@ -83,6 +82,17 @@ class AssignmentRepository:
         await self._session.flush()
         return assignment
 
+    async def revert_to_pending(self, assignment: TaskAssignment) -> TaskAssignment:
+        """
+        Guruh rad etgan (REJECTED) rasm uchun - a'zo qaytadan bajarishi kerak.
+        Status PENDING'ga qaytariladi, shunda eslatma job'i (`_send_reminder_for_task`)
+        IN_PROGRESS holatini "javobni kutmoqda" deb qayta eslatmani to'xtatib
+        qo'ymaydi - a'zoga darhol qayta eslatish davom etadi.
+        """
+        assignment.status = TaskStatus.PENDING
+        await self._session.flush()
+        return assignment
+
     async def get_by_id(self, assignment_id: int) -> TaskAssignment | None:
         return await self._session.get(TaskAssignment, assignment_id)
 
@@ -90,22 +100,18 @@ class AssignmentRepository:
         """
         Joriy vazifa uchun barcha bajarilmagan assignmentlarni o'chiradi.
 
-        Diqqat: agar biror assignment uchun allaqachon jarima (Penalty) yozuvi
-        yoki TaskCompletion (rasm/ovoz tarixi) mavjud bo'lsa, uni o'chirmaymiz -
-        aks holda mos FK cheklovi buzilib IntegrityError chiqadi (masalan, admin
-        bir necha kun ketma-ket o'tkazib yuborilgan - va shu sabab jarimalangan -
-        vazifani keyinroq "skip" qilsa, yoki a'zo rasm yuborib guruh tasdig'ini
-        kutayotgan paytda admin navbatni o'tkazib yuborsa). Bunday qatorlar
-        tarix sifatida saqlanib qoladi.
+        Diqqat: agar biror assignment uchun allaqachon TaskCompletion (rasm/ovoz
+        tarixi) mavjud bo'lsa, uni o'chirmaymiz - aks holda mos FK cheklovi
+        buzilib IntegrityError chiqadi (masalan, a'zo rasm yuborib guruh
+        ovoz berishini kutayotgan paytda admin navbatni o'tkazib yuborsa).
+        Bunday qatorlar tarix sifatida saqlanib qoladi.
         """
         from sqlalchemy import delete, exists
 
-        penalty_exists = exists().where(Penalty.assignment_id == TaskAssignment.id)
         completion_exists = exists().where(TaskCompletion.assignment_id == TaskAssignment.id)
         stmt = delete(TaskAssignment).where(
             TaskAssignment.task_id == task_id,
             TaskAssignment.status.in_([TaskStatus.PENDING, TaskStatus.IN_PROGRESS, TaskStatus.OVERDUE]),
-            ~penalty_exists,
             ~completion_exists,
         )
         await self._session.execute(stmt)
@@ -157,6 +163,18 @@ class AssignmentRepository:
     async def get_completion_by_id(self, completion_id: int) -> TaskCompletion | None:
         return await self._session.get(TaskCompletion, completion_id)
 
+    async def list_expired_pending_completions(self, cutoff: datetime) -> list[TaskCompletion]:
+        """
+        Ovoz oynasi (2 soat) tugagan, lekin hali PENDING (hal qilinmagan)
+        qolgan topshiriqlar - scheduler shularni tortib hisoblab yakunlaydi.
+        """
+        stmt = select(TaskCompletion).where(
+            TaskCompletion.approval_status == CompletionApprovalStatus.PENDING,
+            TaskCompletion.completed_at < cutoff,
+        )
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
     async def resolve_completion(
         self, completion: TaskCompletion, approval_status: CompletionApprovalStatus
     ) -> TaskCompletion:
@@ -166,3 +184,54 @@ class AssignmentRepository:
         completion.resolved_at = datetime.now(timezone.utc)
         await self._session.flush()
         return completion
+
+    async def get_completion_stats(self, member_id: int) -> dict:
+        """A'zoning jami/bajargan assignmentlar soni va bajarish foizi (jarimasiz, sof statistika)."""
+        total_stmt = select(func.count(TaskAssignment.id)).where(
+            TaskAssignment.member_id == member_id
+        )
+        completed_stmt = select(func.count(TaskAssignment.id)).where(
+            TaskAssignment.member_id == member_id, TaskAssignment.status == TaskStatus.COMPLETED
+        )
+        total = (await self._session.execute(total_stmt)).scalar_one()
+        completed = (await self._session.execute(completed_stmt)).scalar_one()
+        completion_rate = round((completed / total) * 100, 1) if total else 0.0
+        return {"total": total, "completed": completed, "completion_rate": completion_rate}
+
+    async def count_all_completions(self) -> int:
+        stmt = select(func.count(TaskCompletion.id))
+        result = await self._session.execute(stmt)
+        return int(result.scalar_one())
+
+    async def has_open_overdue_streak(self, task_id: int, member_id: int) -> bool:
+        """
+        Shu vazifa uchun ushbu a'zo OXIRGI marta bajarganidan (COMPLETED) beri
+        kamida bitta OVERDUE assignment bo'lganmi. Bo'lsa - hozirgi "davra"
+        allaqachon kamida bir kun kechikkan, demak eslatmalar tezlashtirilgan
+        (soatiga bir marta) rejimda davom etishi kerak (`_send_reminder_for_task`,
+        scheduler/jobs.py). Jarima tizimi olib tashlangach, aynan shu belgi
+        "kechikish davri" ni aniqlaydigan yagona signal.
+        """
+        last_completed_stmt = (
+            select(TaskAssignment.assigned_date)
+            .where(
+                TaskAssignment.task_id == task_id,
+                TaskAssignment.member_id == member_id,
+                TaskAssignment.status == TaskStatus.COMPLETED,
+            )
+            .order_by(TaskAssignment.assigned_date.desc())
+            .limit(1)
+        )
+        last_completed_date = (await self._session.execute(last_completed_stmt)).scalar_one_or_none()
+
+        overdue_stmt = select(TaskAssignment.id).where(
+            TaskAssignment.task_id == task_id,
+            TaskAssignment.member_id == member_id,
+            TaskAssignment.status == TaskStatus.OVERDUE,
+        )
+        if last_completed_date is not None:
+            overdue_stmt = overdue_stmt.where(TaskAssignment.assigned_date > last_completed_date)
+        overdue_stmt = overdue_stmt.limit(1)
+
+        result = await self._session.execute(overdue_stmt)
+        return result.scalar_one_or_none() is not None

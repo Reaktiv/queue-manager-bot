@@ -30,7 +30,12 @@ class AuditRepository:
             user_id=user_id,
             entity_type=entity_type,
             entity_id=entity_id,
-            details=json.dumps(details, ensure_ascii=False) if details else None,
+            # `default=str`: ba'zi chaqiruvchilar `details`ga `datetime` kabi
+            # to'g'ridan-to'g'ri JSON-serializable bo'lmagan qiymatlar ham
+            # uzatadi (masalan `update_task`dagi `next_execution_date`) -
+            # audit yozuvi shu sabab butunlay muvaffaqiyatsiz bo'lmasligi
+            # kerak, shuning uchun bunday qiymatlar matn ko'rinishiga o'giriladi.
+            details=json.dumps(details, ensure_ascii=False, default=str) if details else None,
         )
         self._session.add(entry)
         await self._session.flush()

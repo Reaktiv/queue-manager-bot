@@ -1,5 +1,5 @@
 """
-Presentation Layer: A'zo statistikasi (jarima, bajarish foizi).
+Presentation Layer: A'zo statistikasi (bajarish foizi).
 """
 
 from fastapi import APIRouter, Depends
@@ -7,10 +7,9 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....api.auth_deps import Identity, ensure_actor_can_access_group, verify_bot_or_mini_app
-from ....api.deps import get_group_service, get_penalty_service, get_rating_service, get_session
+from ....api.deps import get_group_service, get_session
+from ....repositories.assignment_repository import AssignmentRepository
 from ....services.group_service import GroupService
-from ....services.penalty_service import PenaltyService
-from ....services.rating_service import RatingService
 
 router = APIRouter(
     prefix="/statistics", tags=["Statistics"], dependencies=[Depends(verify_bot_or_mini_app)]
@@ -27,9 +26,7 @@ class ApiResponse(BaseModel):
 async def get_member_statistics(
     member_id: int,
     session: AsyncSession = Depends(get_session),
-    service: PenaltyService = Depends(get_penalty_service),
     group_service: GroupService = Depends(get_group_service),
-    rating_service: RatingService = Depends(get_rating_service),
     identity: Identity = Depends(verify_bot_or_mini_app),
 ):
     member = await group_service.get_member_by_id(member_id)
@@ -37,6 +34,5 @@ async def get_member_statistics(
         return ApiResponse(success=False, message="A'zo topilmadi")
     await ensure_actor_can_access_group(identity, member.group_id, session)
 
-    stats = await service.get_member_statistics(member_id)
-    rating = await rating_service.get_profile_rating(member_id)
-    return ApiResponse(success=True, data={**stats, **rating})
+    stats = await AssignmentRepository(session).get_completion_stats(member_id)
+    return ApiResponse(success=True, data=stats)

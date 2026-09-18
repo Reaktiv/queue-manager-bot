@@ -1,6 +1,6 @@
 """
 Presentation Layer: Guruh admin bildirishnoma shablonlarini
-(reminder, completed, penalty, overdue, queue_changed, task_assigned)
+(reminder, completed, overdue, queue_changed, task_assigned)
 sozlashi uchun endpointlar.
 """
 
@@ -41,7 +41,7 @@ class SetTemplateRequest(BaseModel):
     telegram_id: int
     group_id: int
     template_type: str = Field(
-        description="reminder | completed | penalty | overdue | queue_changed | task_assigned"
+        description="reminder | completed | overdue | queue_changed | task_assigned"
     )
     text_template: str
     language: str = "uz"

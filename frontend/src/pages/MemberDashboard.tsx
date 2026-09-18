@@ -112,15 +112,11 @@ export function MemberDashboard({ user, group }: Props) {
                 <Ring value={stats.data.completion_rate} label="bajarildi" />
                 <div className="grid min-w-0 flex-1 gap-2.5">
                   <LabelValueRow label="Bajarilgan" value={`${stats.data.completed} / ${stats.data.total}`} />
-                  <div className="h-px bg-line" />
-                  <LabelValueRow label="Joriy jarima" value={stats.data.current_penalty} tone="warning" />
-                  <div className="h-px bg-line" />
-                  <LabelValueRow label="O'tkazib yuborilgan" value={stats.data.total_missed} tone="danger" />
                 </div>
               </Surface>
               <p className="mt-2 flex items-center gap-1 px-1 text-caption text-accent">
                 <Icon name="chevron-right" size={14} />
-                To'liq profilni (yulduzli daraja) ko'rish
+                To'liq profilni ko'rish
               </p>
             </section>
           )

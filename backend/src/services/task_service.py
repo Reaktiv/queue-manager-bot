@@ -79,11 +79,11 @@ class TaskService:
             task=task.name,
             group=group.name,
         )
-        # "✅ Bajarildi" tugmasi - scheduler/jobs.py dagi eslatma bilan bir
+        # "✅ Bajarish" tugmasi - scheduler/jobs.py dagi eslatma bilan bir
         # xil: foydalanuvchi shu xabardan to'g'ridan-to'g'ri bajarish
         # oqimini boshlay oladi.
         complete_keyboard = {
-            "inline_keyboard": [[{"text": "✅ Bajarildi", "callback_data": f"complete:{task.id}"}]]
+            "inline_keyboard": [[{"text": "✅ Bajarish", "callback_data": f"complete:{task.id}"}]]
         }
         await self._notification_service.send_private_message(
             user.telegram_id, text, reply_markup=complete_keyboard
@@ -207,8 +207,8 @@ class TaskService:
         if member_ids is None:
             # Aniq tartib berilmagan bo'lsa - guruhning barcha faol
             # a'zolari TASODIFIY tartibda navbatga qo'yiladi (adolatli
-            # boshlanish nuqtasi). Admin keyin "🔄 Navbat tartibi" orqali
-            # xohlagan tartibga qayta joylashtira oladi.
+            # boshlanish nuqtasi). Admin keyin "🔄 Navbatni qayta tartiblash"
+            # orqali xohlagan tartibga qayta joylashtira oladi.
             members = await self._group_repo.list_members(group_id)
             member_ids = [m.id for m in members]
             random.shuffle(member_ids)
@@ -280,8 +280,8 @@ class TaskService:
     async def get_task(self, task_id: int) -> Task | None:
         return await self._task_repo.get_by_id(task_id)
 
-    async def list_group_tasks(self, group_id: int) -> list[Task]:
-        return await self._task_repo.list_by_group(group_id)
+    async def list_group_tasks(self, group_id: int, active_only: bool = True) -> list[Task]:
+        return await self._task_repo.list_by_group(group_id, active_only=active_only)
 
     async def get_member_tasks(self, member_id: int) -> list[Task]:
         return await self._task_repo.get_tasks_for_member(member_id)

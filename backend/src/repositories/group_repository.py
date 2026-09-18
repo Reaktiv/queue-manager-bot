@@ -2,8 +2,6 @@
 Repository Layer: Group va Member bilan ishlash.
 """
 
-from decimal import Decimal
-
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -117,13 +115,6 @@ class GroupRepository:
         member = await self._session.get(Member, member_id)
         if member:
             member.is_on_vacation = is_on_vacation
-            await self._session.flush()
-
-    async def set_rating_stars(self, member_id: int, stars: Decimal) -> None:
-        """Profildagi yakuniy daraja keshini yangilaydi (RatingService hisoblab beradi)."""
-        member = await self._session.get(Member, member_id)
-        if member:
-            member.rating_stars_cache = stars
             await self._session.flush()
 
     async def set_role(self, member_id: int, role: MemberRole) -> Member | None:

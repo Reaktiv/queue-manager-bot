@@ -25,6 +25,7 @@ import { useAsyncData } from "../hooks/useAsyncData";
 import { formatDay, hasAssignee } from "../lib/format";
 import type { AuthUser, GroupSummary, MemberSummary, QueueEntry, TaskSummary } from "../types";
 import { CreateTaskSheet } from "./CreateTaskSheet";
+import { EditTaskSheet } from "./EditTaskSheet";
 import { ProfileSheet } from "../components/ProfileSheet";
 
 interface Props {
@@ -47,6 +48,7 @@ export function AdminDashboard({ user, group }: Props) {
   );
 
   const [createOpen, setCreateOpen] = useState(false);
+  const [editingTask, setEditingTask] = useState<TaskSummary | null>(null);
   const [openTask, setOpenTask] = useState<TaskSummary | null>(null);
   const [openMember, setOpenMember] = useState<MemberSummary | null>(null);
   const [profileMember, setProfileMember] = useState<MemberSummary | null>(null);
@@ -371,6 +373,16 @@ export function AdminDashboard({ user, group }: Props) {
         onCreated={tasks.reload}
       />
 
+      {/* ------------------------- SHEET: vazifani tahrirlash ------------------------- */}
+      <EditTaskSheet
+        open={!!editingTask}
+        onClose={() => setEditingTask(null)}
+        user={user}
+        group={group}
+        task={editingTask}
+        onUpdated={tasks.reload}
+      />
+
       {/* ------------------------- SHEET: vazifa ------------------------- */}
       <Sheet open={!!openTask} onClose={() => setOpenTask(null)} title={activeTask?.name ?? ""}>
         {activeTask && (
@@ -422,7 +434,8 @@ export function AdminDashboard({ user, group }: Props) {
               <ul className="space-y-2 rounded-card bg-surface-2 p-3.5">
                 <Rule icon="lock">
                   Navbat qulflangan: boshidagi a'zo bajarmaguncha keyingisiga o'tmaydi. Kun o'tsa
-                  ham vazifa o'sha a'zoda qoladi va jarima ball qo'shiladi.
+                  ham vazifa o'sha a'zoda qoladi - ertasi kundan boshlab har 1 soatda (guruh va
+                  shaxsiy chatda) eslatib turiladi, toki bajarilmaguncha.
                 </Rule>
                 <Rule icon="camera">
                   A'zo vazifani <b className="font-semibold text-ink">bot orqali</b>, rasm yuborib
@@ -435,6 +448,21 @@ export function AdminDashboard({ user, group }: Props) {
             </section>
 
             <div className="flex gap-2.5 border-t border-line pt-4">
+              <Btn
+                variant="outline"
+                full
+                icon="edit"
+                onClick={() => {
+                  // ProfileSheet'dagi kabi: ichki sheet ochilishidan oldin
+                  // tashqisini yopamiz - ikkita sheet bir vaqtda ochiq
+                  // bo'lganda Telegram BackButton va scroll-lock ikkalasi
+                  // ham ikki marta ro'yxatdan o'tib qolishining oldini olish.
+                  setEditingTask(activeTask);
+                  setOpenTask(null);
+                }}
+              >
+                Tahrirlash
+              </Btn>
               <Btn
                 variant="outline"
                 full
@@ -478,7 +506,7 @@ export function AdminDashboard({ user, group }: Props) {
               </span>
               <div className="min-w-0 flex-1">
                 <p className="text-body font-semibold text-ink">Profilni ko'rish</p>
-                <p className="mt-0.5 text-caption text-muted">Yulduzli daraja va statistikasi</p>
+                <p className="mt-0.5 text-caption text-muted">Bajarish statistikasi</p>
               </div>
               <Icon name="chevron-right" size={18} className="text-muted" />
             </button>

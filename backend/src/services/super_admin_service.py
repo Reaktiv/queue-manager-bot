@@ -6,14 +6,13 @@ ko'ra oladi, tizim holatini kuzatadi, broadcast yubora oladi va
 maintenance mode'ni yoqib/o'chira oladi.
 """
 
+from ..repositories.assignment_repository import AssignmentRepository
 from ..repositories.audit_repository import AuditRepository
 from ..repositories.group_repository import GroupRepository
-from ..repositories.penalty_repository import PenaltyRepository
 from ..repositories.settings_repository import SettingsRepository
 from ..repositories.task_repository import TaskRepository
 from ..repositories.user_repository import UserRepository
 from .notification_service import NotificationService
-from .rating_service import RatingService
 
 MAINTENANCE_MODE_KEY = "maintenance_mode"
 
@@ -24,20 +23,18 @@ class SuperAdminService:
         user_repository: UserRepository,
         group_repository: GroupRepository,
         task_repository: TaskRepository,
-        penalty_repository: PenaltyRepository,
+        assignment_repository: AssignmentRepository,
         settings_repository: SettingsRepository,
         audit_repository: AuditRepository,
         notification_service: NotificationService,
-        rating_service: RatingService | None = None,
     ) -> None:
         self._user_repo = user_repository
         self._group_repo = group_repository
         self._task_repo = task_repository
-        self._penalty_repo = penalty_repository
+        self._assignment_repo = assignment_repository
         self._settings_repo = settings_repository
         self._audit_repo = audit_repository
         self._notification_service = notification_service
-        self._rating_service = rating_service
 
     async def list_all_groups_with_stats(self) -> list[dict]:
         groups = await self._group_repo.list_all_groups()
@@ -73,30 +70,22 @@ class SuperAdminService:
         """
         Super Admin panelidagi "Userlar" ro'yxatida biror foydalanuvchiga
         bosilganda ko'rsatiladigan to'liq profil: asosiy ma'lumotlar +
-        a'zo bo'lgan HAR BIR guruhdagi reytingi (bitta foydalanuvchi bir
-        nechta guruhda bo'lishi va har birida mustaqil reytingga ega
-        bo'lishi mumkin - shuning uchun bittagina "rating" maydoni
-        yetarli emas).
+        a'zo bo'lgan HAR BIR guruh (bitta foydalanuvchi bir nechta
+        guruhda bo'lishi mumkin).
         """
         user = await self._user_repo.get_by_id(user_id)
         if user is None:
             return None
 
         rows = await self._group_repo.list_groups_for_user(user_id)
-        groups = []
-        for group, member in rows:
-            rating_stars = None
-            if self._rating_service is not None:
-                profile = await self._rating_service.get_profile_rating(member.id)
-                rating_stars = profile["rating_stars"]
-            groups.append(
-                {
-                    "group_id": group.id,
-                    "group_name": group.name,
-                    "role": member.role.value,
-                    "rating_stars": rating_stars,
-                }
-            )
+        groups = [
+            {
+                "group_id": group.id,
+                "group_name": group.name,
+                "role": member.role.value,
+            }
+            for group, member in rows
+        ]
 
         return {
             "id": user.id,
@@ -115,7 +104,7 @@ class SuperAdminService:
             "total_groups": await self._group_repo.count_all_groups(),
             "total_users": await self._user_repo.count_all(),
             "total_active_tasks": await self._task_repo.count_all_active(),
-            "total_completions": await self._penalty_repo.count_all_completions(),
+            "total_completions": await self._assignment_repo.count_all_completions(),
             "maintenance_mode": await self.is_maintenance_mode(),
         }
 

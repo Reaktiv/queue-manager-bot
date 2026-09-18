@@ -58,6 +58,18 @@ export interface TaskSummary {
   reminder_interval_max_minutes?: number;
   reminder_start_hour?: number;
   reminder_end_hour?: number;
+
+  /** Vazifani tahrirlash formasini oldindan to'ldirish uchun. */
+  description?: string | null;
+  require_photo?: boolean;
+  schedule_interval_days?: number;
+  /**
+   * Xom `next_execution_date` (lokal sana) - `current_turn_date`dan farqli
+   * o'laroq, tahrirlash formasi buni to'g'ridan-to'g'ri o'qib-yozadi,
+   * chunki `current_turn_date` interval bo'yicha SURILGAN (hisoblangan)
+   * qiymat - uni orqaga yozish jadvalni bitta intervalga siljitib qo'yardi.
+   */
+  next_cycle_date?: string | null;
 }
 
 export interface QueueEntry {
@@ -70,24 +82,9 @@ export interface QueueEntry {
 }
 
 export interface MemberStatistics {
-  current_penalty: number;
-  total_missed: number;
   total: number;
   completed: number;
   completion_rate: number;
-
-  /*
-   * 5 yulduzli profil darajasi (aralash model - backend `RatingService`):
-   *   rating_stars = guruhdoshlar bergan o'rtacha ball (hali baho
-   *   bo'lmasa 5.0) - jami jarima balli, 1.0 va 5.0 oralig'ida.
-   */
-  rating_stars: number;
-  /** Guruhdoshlar bergan o'rtacha sifat bahosi, hali hech kim baho bermagan bo'lsa `null`. */
-  peer_rating_avg: number | null;
-  /** Nechta guruhdosh baho berganini bildiradi. */
-  rating_count: number;
-  /** Jami jarima balli (o'tkazib yuborilgan kunlar soni) - rating_stars shundan ayiriladi. */
-  penalty_points: number;
 }
 
 export interface SuperAdminGroupSummary {
@@ -113,8 +110,6 @@ export interface SuperAdminUserGroupMembership {
   group_id: number;
   group_name: string;
   role: "admin" | "member";
-  /** Shu guruhdagi 5 yulduzli reytingi - RatingService ulanmagan bo'lsa `null`. */
-  rating_stars: number | null;
 }
 
 export interface SuperAdminUserProfile {

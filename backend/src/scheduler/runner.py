@@ -14,7 +14,13 @@ import structlog
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
-from .jobs import check_overdue_tasks, generate_daily_assignments, send_reminders, send_pre_warnings
+from .jobs import (
+    check_overdue_tasks,
+    generate_daily_assignments,
+    resolve_expired_completion_votes,
+    send_pre_warnings,
+    send_reminders,
+)
 
 logger = structlog.get_logger()
 
@@ -47,6 +53,14 @@ def create_scheduler() -> AsyncIOScheduler:
         check_overdue_tasks,
         IntervalTrigger(minutes=15),
         id="check_overdue_tasks",
+        replace_existing=True,
+    )
+
+    # Ovoz berish oynasi 2 soat - 10 daqiqalik interval aniqlikning yetarli darajasi.
+    scheduler.add_job(
+        resolve_expired_completion_votes,
+        IntervalTrigger(minutes=10),
+        id="resolve_expired_completion_votes",
         replace_existing=True,
     )
 

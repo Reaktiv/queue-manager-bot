@@ -323,15 +323,15 @@ class ApiClient:
             logger.error("Complete task with photo request failed", error=str(e))
             return {"success": False, "message": str(e)}
 
-    async def rate_completion(self, telegram_id: int, completion_id: int, stars: int) -> dict:
+    async def vote_completion(self, telegram_id: int, completion_id: int, approve: bool) -> dict:
         try:
             response = await self._client.post(
-                f"/api/v1/completion/{completion_id}/rate",
-                json={"telegram_id": telegram_id, "stars": stars},
+                f"/api/v1/completion/{completion_id}/vote",
+                json={"telegram_id": telegram_id, "approve": approve},
             )
             return response.json()
         except Exception as e:
-            logger.error("Rate completion request failed", error=str(e))
+            logger.error("Vote completion request failed", error=str(e))
             return {"success": False, "message": str(e)}
 
     async def close(self) -> None:

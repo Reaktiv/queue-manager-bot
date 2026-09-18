@@ -76,7 +76,6 @@ class TaskRepository:
     async def delete(self, task: Task) -> None:
         from ..infrastructure.models.task import (
             CompletionVote,
-            Penalty,
             TaskAssignment,
             TaskCompletion,
             TaskQueueEntry,
@@ -105,19 +104,10 @@ class TaskRepository:
             await self._session.execute(
                 delete(TaskCompletion).where(TaskCompletion.assignment_id.in_(assignment_ids))
             )
-            # Delete penalties of those assignments
-            await self._session.execute(
-                delete(Penalty).where(Penalty.assignment_id.in_(assignment_ids))
-            )
             # Delete assignments themselves
             await self._session.execute(
                 delete(TaskAssignment).where(TaskAssignment.id.in_(assignment_ids))
             )
-
-        # Delete any remaining penalties referencing the task directly
-        await self._session.execute(
-            delete(Penalty).where(Penalty.task_id == task.id)
-        )
 
         # Delete queue entries
         await self._session.execute(

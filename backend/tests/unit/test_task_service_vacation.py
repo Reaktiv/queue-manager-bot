@@ -267,14 +267,14 @@ async def test_db_session_timezone_is_asia_tashkent(session):
     assert result.scalar_one() == "Asia/Tashkent"
 
 
-async def test_admin_skip_does_not_crash_when_assignment_has_penalty(session):
+async def test_admin_skip_does_not_crash_when_assignment_has_completion_history(session):
     """
     Regression: agar joriy (PENDING/IN_PROGRESS/OVERDUE) assignment uchun
-    allaqachon Penalty yozuvi mavjud bo'lsa, admin_skip uni o'chirishga
-    urinib IntegrityError (FK violation) bermasligi kerak - shu qatorni
-    o'chirmasdan chetlab o'tishi kerak.
+    allaqachon TaskCompletion (rasm/ovoz tarixi) mavjud bo'lsa, admin_skip
+    uni o'chirishga urinib IntegrityError (FK violation) bermasligi kerak -
+    shu qatorni o'chirmasdan chetlab o'tishi kerak.
     """
-    from backend.src.infrastructure.models.task import Penalty, TaskStatus
+    from backend.src.infrastructure.models.task import TaskStatus
     from backend.src.utils.datetime_utils import get_local_today
 
     owner, group, member_ids = await _setup_group_with_members(session, [False, False])
@@ -289,7 +289,7 @@ async def test_admin_skip_does_not_crash_when_assignment_has_penalty(session):
 
     # create_task_with_queue allaqachon bugungi kun uchun front a'zoga (member_ids[0])
     # assignment yaratib qo'ygan (unique constraint tufayli qayta yaratib bo'lmaydi) -
-    # o'shani olib, "muddati o'tgan va jarimalangan" holatga keltiramiz.
+    # o'shani olib, "muddati o'tgan, lekin tarixi bor" holatga keltiramiz.
     today = get_local_today(group.timezone)
     assignment_repo = AssignmentRepository(session)
     assignment = await assignment_repo.get_or_create_for_local_date(
@@ -298,11 +298,11 @@ async def test_admin_skip_does_not_crash_when_assignment_has_penalty(session):
     assignment.status = TaskStatus.OVERDUE
     await session.flush()
 
-    penalty = Penalty(member_id=member_ids[0], task_id=task.id, assignment_id=assignment.id)
-    session.add(penalty)
-    await session.flush()
+    await assignment_repo.add_completion_record(
+        assignment_id=assignment.id, member_id=member_ids[0], photo_path=None, caption=None
+    )
 
-    # Bu chaqiruv avval "penalties_assignment_id_fkey" IntegrityError bilan qulardi.
+    # Bu chaqiruv avval "task_completion_assignment_id_fkey" IntegrityError bilan qulardi.
     await task_service.admin_skip(task.id, owner.id)
 
     reloaded = await AssignmentRepository(session).get_by_id(assignment.id)
@@ -335,9 +335,9 @@ async def test_create_task_without_member_ids_includes_all_active_members(sessio
 async def test_create_task_without_member_ids_shuffles_order(session, monkeypatch):
     """
     Aniq tartib berilmaganda a'zolar TASODIFIY tartibda navbatga
-    qo'yiladi (adolatli boshlanish nuqtasi - admin keyin "Navbat tartibi"
-    orqali xohlagan holga qayta joylashtira oladi). `random.shuffle`
-    aynan shu a'zolar ro'yxati bilan chaqirilishini tekshiradi.
+    qo'yiladi (adolatli boshlanish nuqtasi - admin keyin "Navbatni qayta
+    tartiblash" orqali xohlagan holga qayta joylashtira oladi).
+    `random.shuffle` aynan shu a'zolar ro'yxati bilan chaqirilishini tekshiradi.
     """
     owner, group, member_ids = await _setup_group_with_members(session, [False, False, False, False])
     task_service = _make_task_service(session)

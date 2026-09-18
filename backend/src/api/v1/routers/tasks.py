@@ -25,7 +25,7 @@ from ....services.group_service import GroupService
 from ....services.queue_service import QueueService
 from ....services.task_service import TaskService
 from ....services.user_service import UserService
-from ....utils.datetime_utils import get_local_today, utc_to_local_date
+from ....utils.datetime_utils import get_local_today, local_date_to_utc_start, utc_to_local_date
 from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(
@@ -117,6 +117,8 @@ class UpdateTaskRequest(BaseModel):
     telegram_id: int
     name: str | None = None
     description: str | None = None
+    schedule_interval_days: int | None = Field(default=None, gt=0)
+    next_execution_date: str | None = None
     reminder_interval_min_minutes: int | None = Field(default=None, gt=0)
     reminder_interval_max_minutes: int | None = Field(default=None, gt=0)
     reminder_start_hour: int | None = Field(default=None, ge=0, le=23)
@@ -215,6 +217,7 @@ async def create_task(
 @router.get("/group/{group_id}", response_model=ApiResponse)
 async def list_group_tasks(
     group_id: int,
+    include_inactive: bool = False,
     session: AsyncSession = Depends(get_session),
     task_service: TaskService = Depends(get_task_service),
     group_service: GroupService = Depends(get_group_service),
@@ -237,7 +240,13 @@ async def list_group_tasks(
 
     await ensure_actor_can_access_group(identity, group_id, session)
 
-    tasks = await task_service.list_group_tasks(group_id)
+    # `include_inactive`: bot buyruqlari (masalan /tasks) standart holatda
+    # faqat FAOL vazifalarni ko'radi - o'zgartirilmadi. Mini App esa
+    # "Tahrirlash" formasidagi "Vazifa faol" tugmasi orqali o'chirilgan
+    # vazifani qaytadan yoqishi kerak - shuning uchun to'liq ro'yxat
+    # so'raydi, aks holda o'chirilgan vazifa ro'yxatdan butunlay g'oyib
+    # bo'lib, uni qayta yoqish uchun UI'da hech qanday yo'l qolmasdi.
+    tasks = await task_service.list_group_tasks(group_id, active_only=not include_inactive)
     group = await group_service._repo.get_by_id(group_id)
     timezone_str = group.timezone if group else "Asia/Tashkent"
 
@@ -274,17 +283,34 @@ async def list_group_tasks(
             else "Hech kim"
         )
 
+        # DIQQAT: `current_turn_date` DERIVED qiymat - u haqiqiy
+        # `next_execution_date` ustunidan bitta INTERVAL orqaga surilgan
+        # (chunki `next_execution_date` "KEYINGI, hali yaratilmagan tsikl
+        # qachon" degani, joriy navbat esa undan bir interval oldin
+        # allaqachon tayinlangan). Tahrirlash formasi shuning uchun buni
+        # ORQAGA yozmaydi - aks holda har safar saqlaganda jadval bitta
+        # intervalga siljib ketardi. `next_cycle_date` - xom ustunning
+        # o'zi (lokal sanada), faqat shu tahrirlanadi.
+        next_cycle_date = (
+            utc_to_local_date(t.next_execution_date, timezone_str).isoformat()
+            if t.next_execution_date
+            else None
+        )
         data.append({
             "id": t.id,
             "name": t.name,
+            "description": t.description,
             "priority": t.priority,
             "is_active": t.is_active,
+            "require_photo": t.require_photo,
+            "schedule_interval_days": t.schedule_interval_days or 1,
             "current_assignee": current_assignee,
             "current_turn_date": (
                 _build_queue_schedule_dates(t, timezone_str, 1)[0]
                 if (t.next_execution_date or t.start_date)
                 else None
             ),
+            "next_cycle_date": next_cycle_date,
             "reminder_interval_min_minutes": t.reminder_interval_min_minutes,
             "reminder_interval_max_minutes": t.reminder_interval_max_minutes,
             "reminder_start_hour": t.reminder_start_hour,
@@ -300,6 +326,7 @@ async def update_task(
     session: AsyncSession = Depends(get_session),
     task_service: TaskService = Depends(get_task_service),
     user_service: UserService = Depends(get_user_service),
+    group_service: GroupService = Depends(get_group_service),
     identity: Identity = Depends(verify_bot_or_mini_app),
 ):
     await ensure_actor_owns_telegram_id(identity, payload.telegram_id, session)
@@ -313,7 +340,24 @@ async def update_task(
 
     await ensure_admin_for_group(user_id, existing_task.group_id, session)
 
-    fields = payload.model_dump(exclude={"telegram_id"})
+    fields = payload.model_dump(exclude={"telegram_id", "next_execution_date"})
+
+    # "Keyingi navbat" sanasi alohida ishlanadi - u YYYY-MM-DD (lokal sana)
+    # ko'rinishida keladi, DB'da esa UTC datetime sifatida saqlanadi (xuddi
+    # `create_task`dagi `start_date` kabi - guruh vaqt zonasi hisobga olinadi).
+    if payload.next_execution_date:
+        try:
+            next_exec_local = datetime.strptime(
+                payload.next_execution_date.strip(), "%Y-%m-%d"
+            ).date()
+        except ValueError:
+            return ApiResponse(
+                success=False, message="Sana formati noto'g'ri (YYYY-MM-DD bo'lishi kerak)"
+            )
+        group = await group_service._repo.get_by_id(existing_task.group_id)
+        timezone_str = group.timezone if group else "Asia/Tashkent"
+        fields["next_execution_date"] = local_date_to_utc_start(next_exec_local, timezone_str)
+
     task = await task_service.update_task(task_id, user_id, **fields)
     if task is None:
         return ApiResponse(success=False, message="Vazifa topilmadi")

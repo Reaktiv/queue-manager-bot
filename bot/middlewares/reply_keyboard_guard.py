@@ -33,6 +33,7 @@ InlineKeyboardMarkup/ForceReply bilan ishlaydigan so'rovlarga (vazifa/
 ovoz/reyting tugmalari va h.k.) TEGINILMAYDI - ular xabarning o'ziga
 biriktiriladi (chatga emas) va bu muammoga aloqasi yo'q.
 """
+import typing
 from typing import Any
 
 from aiogram.types import ReplyKeyboardMarkup, ReplyKeyboardRemove
@@ -49,6 +50,26 @@ def _is_group_chat(chat_id: Any) -> bool:
     return isinstance(chat_id, int) and chat_id < 0
 
 
+def _accepts_reply_keyboard(method: Any) -> bool:
+    """
+    FAQAT `sendMessage`/`sendPhoto`/`copyMessage` kabi "yuborish" turidagi
+    so'rovlar reply_markup sifatida ReplyKeyboardMarkup/ReplyKeyboardRemove
+    qabul qiladi. `editMessageText/Caption/Media/ReplyMarkup`,
+    `deleteMessage`, `forwardMessage`, `sendMediaGroup` kabi metodlarda bu
+    maydon yo'q yoki faqat InlineKeyboardMarkup bilan cheklangan - bunday
+    metodga ReplyKeyboardRemove() qo'yib yuborish so'rovni buzadi (aiogram
+    metod modellari `extra="allow"` bo'lgani uchun bu xato jim ketadi,
+    lekin Telegram noto'g'ri/bo'sh reply_markup tufayli so'rovni rad
+    etadi). Shu sababli reply_markup maydonining DEKLARATIV TURI orqali
+    tekshiramiz - metod nomlarini qattiq ro'yxatlashdan ko'ra ishonchli
+    va umumiy usul.
+    """
+    field = type(method).model_fields.get("reply_markup")
+    if field is None:
+        return False
+    return ReplyKeyboardMarkup in typing.get_args(field.annotation)
+
+
 # Jarayon (process) umri davomida har bir guruhga FAQAT BIR MARTA
 # "tozalash" (ReplyKeyboardRemove) qo'shiladi - bu tuzatishdan OLDIN
 # o'sha guruhda qolib ketgan klaviaturani olib tashlash uchun. Bot
@@ -60,8 +81,8 @@ _cleaned_group_chats: set[int] = set()
 
 async def strip_group_reply_keyboards(make_request: Any, bot: Any, method: Any) -> Any:
     chat_id = getattr(method, "chat_id", None)
-    if _is_group_chat(chat_id):
-        reply_markup = getattr(method, "reply_markup", None)
+    if _is_group_chat(chat_id) and _accepts_reply_keyboard(method):
+        reply_markup = method.reply_markup
 
         if isinstance(reply_markup, ReplyKeyboardMarkup):
             method.reply_markup = ReplyKeyboardRemove()
