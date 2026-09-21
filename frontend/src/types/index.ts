@@ -45,20 +45,6 @@ export interface TaskSummary {
   is_active_now?: boolean;
   next_execution_date?: string;
 
-  /*
-   * Eslatma sozlamalari. Backend `GET /tasks/group/{id}` da bu to'rt
-   * maydonni ALLAQACHON qaytaradi, lekin frontend ularni hech qachon
-   * ko'rsatmagan - admin vazifa qanday sozlanganini bilish uchun uni
-   * o'chirib qayta yaratishi kerak edi. Yangi API chaqiruvi qo'shilmaydi,
-   * mavjud javobdagi ma'lumot ishlatiladi.
-   * `GET /tasks/member/{tg}` bu maydonlarni qaytarmaydi - shuning uchun
-   * ixtiyoriy.
-   */
-  reminder_interval_min_minutes?: number;
-  reminder_interval_max_minutes?: number;
-  reminder_start_hour?: number;
-  reminder_end_hour?: number;
-
   /** Vazifani tahrirlash formasini oldindan to'ldirish uchun. */
   description?: string | null;
   require_photo?: boolean;

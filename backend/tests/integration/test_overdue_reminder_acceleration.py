@@ -3,10 +3,10 @@ Integratsiya testi: jarima o'rniga qo'shilgan "muddati o'tgan vazifa uchun
 soatiga bir marta eslatish" rejimi (`scheduler/jobs.py`,
 `AssignmentRepository.has_open_overdue_streak`).
 
-Vazifaning o'zi 120 daqiqalik eslatma oralig'iga sozlangan - agar a'zo
-hali hech qachon kechiktirmagan bo'lsa shu 120 daqiqa qo'llanishi, lekin
-kamida bir kun kechiktirgan bo'lsa (OVERDUE tarixi bor) qat'iy 60
-daqiqaga tezlashishi kerak.
+Oddiy holatda eslatmalar endi barcha vazifalar uchun qat'iy belgilangan
+3 vaqtda (8:00, 13:00, 19:00) yuboriladi, lekin a'zo kamida bir kun
+kechiktirgan bo'lsa (OVERDUE tarixi bor) qat'iy 60 daqiqaga tezlashishi
+kerak.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -51,8 +51,7 @@ class _MockSessionContext:
 
 
 async def _setup_task(client, session, admin_telegram_id: int, group_name: str) -> tuple[int, int]:
-    """Guruh + vazifa (120 daqiqalik, kun bo'yi eslatma oynasi) yaratadi.
-    Qaytaradi: `(task_id, front_member_telegram_id)`."""
+    """Guruh + vazifa yaratadi. Qaytaradi: `(task_id, front_member_telegram_id)`."""
     await client.post(
         "/api/v1/users/register",
         json={"telegram_id": admin_telegram_id, "full_name": "Overdue Admin"},
@@ -71,10 +70,6 @@ async def _setup_task(client, session, admin_telegram_id: int, group_name: str) 
             "telegram_id": admin_telegram_id,
             "group_id": group_id,
             "name": "Overdue Task",
-            "reminder_interval_min_minutes": 120,
-            "reminder_interval_max_minutes": 120,
-            "reminder_start_hour": 0,
-            "reminder_end_hour": 23,
         },
         headers=HEADERS,
     )
@@ -82,11 +77,12 @@ async def _setup_task(client, session, admin_telegram_id: int, group_name: str) 
     return task_id, admin_telegram_id
 
 
-async def test_reminder_uses_configured_interval_without_overdue_history(
+async def test_reminder_uses_fixed_schedule_without_overdue_history(
     client, session, monkeypatch
 ):
     import backend.src.scheduler.jobs as jobs_module
     from backend.src.scheduler.jobs import send_reminders
+    from backend.src.utils.datetime_utils import calculate_next_fixed_reminder_at
 
     monkeypatch.setattr(jobs_module, "async_session_factory", lambda: _MockSessionContext(session))
 
@@ -100,8 +96,8 @@ async def test_reminder_uses_configured_interval_without_overdue_history(
     await send_reminders()
 
     await session.refresh(task)
-    delta_minutes = (task.next_reminder_at - now).total_seconds() / 60
-    assert 110 <= delta_minutes <= 130, f"expected ~120 min, got {delta_minutes}"
+    expected = calculate_next_fixed_reminder_at(now_utc=now, timezone_str="Asia/Tashkent")
+    assert task.next_reminder_at == expected
 
 
 async def test_reminder_accelerates_to_hourly_after_overdue_streak(client, session, monkeypatch):

@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { api } from "../api/client";
-import { Icon } from "../components/Icon";
 import { Btn, Field, Input, Sheet, Stepper, Switch, toast } from "../components/ui";
 import { todayInZone } from "../lib/format";
 import type { AuthUser, GroupSummary } from "../types";
@@ -30,33 +29,17 @@ export function CreateTaskSheet({ open, onClose, user, group, onCreated }: Props
   const [name, setName] = useState("");
   const [everyDays, setEveryDays] = useState(1);
   const [startDate, setStartDate] = useState(() => todayInZone(group.timezone));
-  const [remindMin, setRemindMin] = useState(60);
-  const [remindMax, setRemindMax] = useState(60);
-  const [fromHour, setFromHour] = useState(8);
-  const [toHour, setToHour] = useState(22);
   const [requirePhoto, setRequirePhoto] = useState(true);
 
   function resetForm() {
     setName("");
     setEveryDays(1);
-    setRemindMin(60);
-    setRemindMax(60);
-    setFromHour(8);
-    setToHour(22);
     setRequirePhoto(true);
     setStartDate(todayInZone(group.timezone));
   }
 
   async function createTask() {
     if (!name.trim()) return;
-    if (remindMin > remindMax) {
-      toast.err("Eslatma oralig'i: minimal qiymat maksimaldan katta bo'lmasin");
-      return;
-    }
-    if (fromHour >= toHour) {
-      toast.err("Eslatma vaqti: boshlanish soati tugash soatidan oldin bo'lsin");
-      return;
-    }
     setCreating(true);
     const res = await api.createTask({
       telegram_id: user.telegram_id,
@@ -65,10 +48,6 @@ export function CreateTaskSheet({ open, onClose, user, group, onCreated }: Props
       require_photo: requirePhoto,
       schedule_interval_days: everyDays || 1,
       start_date: startDate,
-      reminder_interval_min_minutes: remindMin || 60,
-      reminder_interval_max_minutes: remindMax || 60,
-      reminder_start_hour: fromHour,
-      reminder_end_hour: toHour,
     });
     setCreating(false);
     if (!res.success) return toast.err(res.message || "Vazifa yaratilmadi");
@@ -77,12 +56,6 @@ export function CreateTaskSheet({ open, onClose, user, group, onCreated }: Props
     resetForm();
     onCreated();
   }
-
-  // Tekshiruvlarni jonli ko'rsatamiz: xato faqat yuborishdan keyin emas,
-  // darhol maydon tagida chiqadi.
-  const intervalError =
-    remindMin > remindMax ? "Minimal qiymat maksimaldan katta bo'lmasin" : undefined;
-  const hourError = fromHour >= toHour ? "Boshlanish tugashdan oldin bo'lsin" : undefined;
 
   return (
     <Sheet open={open} onClose={onClose} title="Yangi vazifa">
@@ -112,57 +85,6 @@ export function CreateTaskSheet({ open, onClose, user, group, onCreated }: Props
           </Field>
         </div>
 
-        {/* Eslatma sozlamalari: ichma-ich karta emas, sarlavhali guruh.
-            Ilgari bu yerda karta ichida karta ichida ramkali stepper bor edi. */}
-        <section>
-          <p className="mb-2.5 flex items-center gap-1.5 text-micro uppercase text-muted">
-            <Icon name="bell" size={14} />
-            Eslatma sozlamalari
-          </p>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Oralig'i (min)" error={intervalError}>
-              <Stepper
-                value={remindMin}
-                onChange={setRemindMin}
-                min={1}
-                max={1440}
-                suffix="daq"
-                label="Eslatma oralig'i, minimal"
-              />
-            </Field>
-            <Field label="Oralig'i (max)">
-              <Stepper
-                value={remindMax}
-                onChange={setRemindMax}
-                min={1}
-                max={1440}
-                suffix="daq"
-                label="Eslatma oralig'i, maksimal"
-              />
-            </Field>
-            <Field label="Boshlash" error={hourError}>
-              <Stepper
-                value={fromHour}
-                onChange={setFromHour}
-                min={0}
-                max={23}
-                suffix="soat"
-                label="Eslatma boshlanish soati"
-              />
-            </Field>
-            <Field label="Tugatish">
-              <Stepper
-                value={toHour}
-                onChange={setToHour}
-                min={0}
-                max={23}
-                suffix="soat"
-                label="Eslatma tugash soati"
-              />
-            </Field>
-          </div>
-        </section>
-
         <div className="flex items-center justify-between gap-3 rounded-control bg-surface-2 px-3.5 py-3">
           <div className="min-w-0">
             <p className="text-body font-semibold text-ink">Rasm talab qilinsin</p>
@@ -176,6 +98,10 @@ export function CreateTaskSheet({ open, onClose, user, group, onCreated }: Props
             label="Rasm talab qilinsin"
           />
         </div>
+
+        <p className="text-caption text-muted">
+          🔔 Eslatmalar har kuni qat'iy 08:00, 13:00 va 19:00 da yuboriladi.
+        </p>
 
         <Btn full size="lg" onClick={createTask} loading={creating} disabled={!name.trim()}>
           {creating ? "Yaratilmoqda…" : "Vazifani yaratish"}

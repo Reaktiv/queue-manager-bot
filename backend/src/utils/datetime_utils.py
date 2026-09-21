@@ -9,6 +9,11 @@ from zoneinfo import ZoneInfo
 DEFAULT_TIMEZONE = "Asia/Tashkent"
 DEFAULT_ZONEINFO = ZoneInfo(DEFAULT_TIMEZONE)
 
+# Oddiy eslatmalar endi tasodifiy interval o'rniga har kuni qat'iy
+# belgilangan shu 3 vaqtda yuboriladi - barcha vazifalar uchun bir xil,
+# task darajasida sozlanmaydi.
+FIXED_REMINDER_HOURS: tuple[int, ...] = (8, 13, 19)
+
 
 def get_timezone(timezone_str: str | None) -> ZoneInfo:
     try:
@@ -54,6 +59,33 @@ def reminder_window_start_utc(local_date: date, timezone_str: str, start_hour: i
         tzinfo=tz,
     )
     return local_dt.astimezone(timezone.utc)
+
+
+def calculate_next_fixed_reminder_at(
+    now_utc: datetime,
+    timezone_str: str,
+    fixed_hours: tuple[int, ...] = FIXED_REMINDER_HOURS,
+) -> datetime:
+    """
+    Keyingi eslatma vaqtini har kuni qat'iy belgilangan soatlar (standart:
+    8:00, 13:00, 19:00) orasidan hisoblab beradi - guruh timezone'i
+    bo'yicha bugun hali kelmagan eng yaqin vaqt, yoki barchasi o'tib
+    ketgan bo'lsa - ertangi kunning birinchi vaqti.
+    """
+    tz = get_timezone(timezone_str)
+    local_now = ensure_utc(now_utc).astimezone(tz)
+
+    todays_candidates = [
+        local_now.replace(hour=h, minute=0, second=0, microsecond=0) for h in fixed_hours
+    ]
+    upcoming = [c for c in todays_candidates if c > local_now]
+    if upcoming:
+        candidate = min(upcoming)
+    else:
+        candidate = (local_now + timedelta(days=1)).replace(
+            hour=fixed_hours[0], minute=0, second=0, microsecond=0
+        )
+    return candidate.astimezone(timezone.utc)
 
 
 def calculate_next_reminder_at(

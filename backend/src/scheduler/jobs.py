@@ -26,6 +26,8 @@ from ..services.photo_storage_service import PhotoStorageService
 from ..services.task_service import TaskService
 from ..services.voting_service import VotingService
 from ..utils.datetime_utils import (
+    FIXED_REMINDER_HOURS,
+    calculate_next_fixed_reminder_at,
     calculate_next_reminder_at,
     get_timezone,
     get_local_today,
@@ -119,23 +121,25 @@ async def _send_reminder_for_task(
         logger.info("reminder_sent_group", task_id=task.id, telegram_chat_id=group.telegram_chat_id)
 
     # Muddati o'tib, kamida bir kun kechikkan bo'lsa (jarima o'rniga) eslatma
-    # tezlashtiriladi - vazifaning o'zi sozlagan oralig'idan qat'i nazar,
-    # har 1 soatda (hamon sozlangan eslatma oynasi ichida) qayta-qayta
-    # eslatib turiladi, toki bajarilmaguncha.
+    # tezlashtiriladi - qat'iy 3 vaqtdan qat'i nazar, har 1 soatda (hamon
+    # sozlangan eslatma oynasi ichida) qayta-qayta eslatib turiladi, toki
+    # bajarilmaguncha. Oddiy holatda esa eslatma qat'iy belgilangan 3
+    # vaqtdan (8:00, 13:00, 19:00) keyingisiga o'tkaziladi.
     overdue_streak = await assignment_repo.has_open_overdue_streak(
         task.id, current_entry.member_id
     )
-    interval_min = 60 if overdue_streak else task.reminder_interval_min_minutes
-    interval_max = 60 if overdue_streak else task.reminder_interval_max_minutes
-
-    next_rem = calculate_next_reminder_at(
-        now_utc=now,
-        timezone_str=group.timezone if group else "Asia/Tashkent",
-        interval_min_minutes=interval_min,
-        interval_max_minutes=interval_max,
-        start_hour=task.reminder_start_hour,
-        end_hour=task.reminder_end_hour,
-    )
+    timezone_str = group.timezone if group else "Asia/Tashkent"
+    if overdue_streak:
+        next_rem = calculate_next_reminder_at(
+            now_utc=now,
+            timezone_str=timezone_str,
+            interval_min_minutes=60,
+            interval_max_minutes=60,
+            start_hour=task.reminder_start_hour,
+            end_hour=task.reminder_end_hour,
+        )
+    else:
+        next_rem = calculate_next_fixed_reminder_at(now_utc=now, timezone_str=timezone_str)
     task.next_reminder_at = next_rem
 
 
@@ -289,7 +293,7 @@ async def _generate_assignment_for_task(
     task.next_reminder_at = reminder_window_start_utc(
         local_date=local_today,
         timezone_str=group.timezone,
-        start_hour=task.reminder_start_hour,
+        start_hour=FIXED_REMINDER_HOURS[0],
     )
 
 
@@ -348,8 +352,8 @@ async def _send_pre_warning_for_task(
         if last_sent_local.date() == task_local_exec.date():
             return
 
-    # Send at reminder_start_hour (or if we are past it and haven't sent it yet)
-    if local_hour < task.reminder_start_hour:
+    # Send at the first fixed reminder hour (or if we are past it and haven't sent it yet)
+    if local_hour < FIXED_REMINDER_HOURS[0]:
         return
 
     current_entry = await queue_repo.get_current_entry(task.id)
@@ -378,7 +382,7 @@ async def _send_pre_warning_for_task(
 async def send_pre_warnings() -> None:
     """
     Vazifaga 1 kun qolganda foydalanuvchini ogohlantirish xabari yuboriladi.
-    Xabar faqat 1 marta, guruhning reminder_start_hour soatida yuboriladi.
+    Xabar faqat 1 marta, kunning birinchi qat'iy eslatma soatida (8:00) yuboriladi.
 
     Har bir vazifa alohida try/except bilan qayta ishlanadi - bitta vazifadagi
     xatolik boshqa vazifalar uchun ogohlantirish yuborilishini to'xtatmasligi kerak.

@@ -209,10 +209,6 @@ export const api = {
     schedule_type?: string;
     schedule_interval_days?: number | null;
     start_date?: string | null;
-    reminder_interval_min_minutes?: number;
-    reminder_interval_max_minutes?: number;
-    reminder_start_hour?: number;
-    reminder_end_hour?: number;
   }) =>
     request<{ task_id: number; name: string }>("/api/v1/tasks/", {
       method: "POST",
@@ -228,10 +224,6 @@ export const api = {
       schedule_interval_days?: number;
       next_execution_date?: string | null;
       require_photo?: boolean;
-      reminder_interval_min_minutes?: number;
-      reminder_interval_max_minutes?: number;
-      reminder_start_hour?: number;
-      reminder_end_hour?: number;
       is_active?: boolean;
     }
   ) =>

@@ -259,7 +259,10 @@ async def test_create_task_assigns_current_active_member_and_sends_immediate_rem
         ("private", 2002, "reminder:M1:Task:Vacation Test Group"),
         ("group", -1001234567890, 'reminder:<a href="tg://user?id=2002">M1</a>:Task:Vacation Test Group'),
     ]
-    assert task.next_reminder_at == datetime(2026, 7, 19, 6, 30, tzinfo=timezone.utc)
+    # frozen_now = 05:30 UTC = 10:30 Asia/Tashkent (UTC+5). Eslatmalar endi
+    # qat'iy belgilangan 8/13/19 vaqtlarida yuboriladi - 10:30dan keyingi
+    # eng yaqini 13:00 mahalliy = 08:00 UTC.
+    assert task.next_reminder_at == datetime(2026, 7, 19, 8, 0, tzinfo=timezone.utc)
 
 
 async def test_db_session_timezone_is_asia_tashkent(session):
