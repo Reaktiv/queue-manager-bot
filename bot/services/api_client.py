@@ -194,10 +194,6 @@ class ApiClient:
         name: str,
         description: str | None = None,
         schedule_type: str = "daily",
-        reminder_interval_min_minutes: int = 60,
-        reminder_interval_max_minutes: int = 60,
-        reminder_start_hour: int = 8,
-        reminder_end_hour: int = 22,
         require_photo: bool = True,
         schedule_interval_days: int | None = None,
         start_date: str | None = None,
@@ -211,10 +207,6 @@ class ApiClient:
                     "name": name,
                     "description": description,
                     "schedule_type": schedule_type,
-                    "reminder_interval_min_minutes": reminder_interval_min_minutes,
-                    "reminder_interval_max_minutes": reminder_interval_max_minutes,
-                    "reminder_start_hour": reminder_start_hour,
-                    "reminder_end_hour": reminder_end_hour,
                     "require_photo": require_photo,
                     "schedule_interval_days": schedule_interval_days,
                     "start_date": start_date,
@@ -224,34 +216,6 @@ class ApiClient:
             return response.json()
         except Exception as e:
             logger.error("Create task request failed", error=str(e))
-            return {"success": False, "message": str(e)}
-
-    async def update_task(
-        self,
-        telegram_id: int,
-        task_id: int,
-        reminder_interval_min_minutes: int | None = None,
-        reminder_interval_max_minutes: int | None = None,
-        reminder_start_hour: int | None = None,
-        reminder_end_hour: int | None = None,
-    ) -> dict:
-        try:
-            body: dict = {"telegram_id": telegram_id}
-            if reminder_interval_min_minutes is not None:
-                body["reminder_interval_min_minutes"] = reminder_interval_min_minutes
-            if reminder_interval_max_minutes is not None:
-                body["reminder_interval_max_minutes"] = reminder_interval_max_minutes
-            if reminder_start_hour is not None:
-                body["reminder_start_hour"] = reminder_start_hour
-            if reminder_end_hour is not None:
-                body["reminder_end_hour"] = reminder_end_hour
-
-            response = await self._client.request(
-                "PATCH", f"/api/v1/tasks/{task_id}", json=body
-            )
-            return response.json()
-        except Exception as e:
-            logger.error("Update task request failed", error=str(e))
             return {"success": False, "message": str(e)}
 
     async def set_vacation(self, telegram_id: int, member_id: int, is_on_vacation: bool) -> dict:

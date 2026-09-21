@@ -19,10 +19,6 @@ class CreateTaskStates(StatesGroup):
     waiting_for_description = State()
     waiting_for_interval_days = State()
     waiting_for_start_date = State()
-    waiting_for_reminder_interval_min = State()
-    waiting_for_reminder_interval_max = State()
-    waiting_for_reminder_start_hour = State()
-    waiting_for_reminder_end_hour = State()
     waiting_for_photo_requirement = State()
     confirm = State()
 
@@ -35,10 +31,3 @@ class ReorderStates(StatesGroup):
     """Admin butun navbat tartibini a'zolarni birma-bir tanlab qayta
     belgilaydi - oxirgi a'zo tanlangunga qadar shu holatda qoladi."""
     waiting_for_next_member = State()
-
-
-class EditReminderStates(StatesGroup):
-    waiting_for_min = State()
-    waiting_for_max = State()
-    waiting_for_start_hour = State()
-    waiting_for_end_hour = State()

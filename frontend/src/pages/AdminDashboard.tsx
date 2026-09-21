@@ -407,12 +407,7 @@ export function AdminDashboard({ user, group }: Props) {
             <section>
               <SheetLabel>Sozlamalar</SheetLabel>
               <div className="overflow-hidden rounded-card bg-surface-2">
-                <InfoRow
-                  icon="bell"
-                  label="Eslatma oralig'i"
-                  value={formatInterval(activeTask)}
-                />
-                <InfoRow icon="clock" label="Eslatma vaqti" value={formatWindow(activeTask)} />
+                <InfoRow icon="bell" label="Eslatma vaqti" value="08:00, 13:00, 19:00" />
                 <InfoRow
                   icon="calendar"
                   label="Keyingi navbat"
@@ -637,19 +632,3 @@ function ToggleRow({
   );
 }
 
-/** "Har 60 daq" yoki "60-120 daq". Ma'lumot bo'lmasa - em tire. */
-function formatInterval(t: TaskSummary): string {
-  const min = t.reminder_interval_min_minutes;
-  const max = t.reminder_interval_max_minutes;
-  if (min === undefined || max === undefined) return "—";
-  return min === max ? `Har ${min} daq` : `${min}-${max} daq`;
-}
-
-/** "08:00 - 22:00" */
-function formatWindow(t: TaskSummary): string {
-  const from = t.reminder_start_hour;
-  const to = t.reminder_end_hour;
-  if (from === undefined || to === undefined) return "—";
-  const pad = (h: number) => String(h).padStart(2, "0");
-  return `${pad(from)}:00 - ${pad(to)}:00`;
-}

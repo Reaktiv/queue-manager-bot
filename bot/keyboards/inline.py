@@ -100,7 +100,6 @@ def admin_task_menu_keyboard(task_id: int) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="👀 Navbat", callback_data=f"preview:{task_id}")],
             [InlineKeyboardButton(text="⏭ Skip", callback_data=f"admin_skip:{task_id}")],
             [InlineKeyboardButton(text="🔄 Navbatni qayta tartiblash", callback_data=f"admin_swap_start:{task_id}")],
-            [InlineKeyboardButton(text="⏰ Eslatma sozlamalari", callback_data=f"edit_reminder_start:{task_id}")],
         ]
     )
 

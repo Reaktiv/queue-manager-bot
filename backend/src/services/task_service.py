@@ -16,7 +16,8 @@ from .queue_service import QueueService
 from datetime import date, datetime, timedelta, timezone
 
 from ..utils.datetime_utils import (
-    calculate_next_reminder_at,
+    FIXED_REMINDER_HOURS,
+    calculate_next_fixed_reminder_at,
     get_local_today,
     local_date_to_utc_start,
     reminder_window_start_utc,
@@ -45,13 +46,9 @@ class TaskService:
 
     async def _update_task_next_reminder_at(self, task: Task) -> None:
         group = await self._group_repo.get_by_id(task.group_id)
-        next_rem_at = calculate_next_reminder_at(
+        next_rem_at = calculate_next_fixed_reminder_at(
             now_utc=datetime.now(timezone.utc),
             timezone_str=group.timezone if group else "Asia/Tashkent",
-            interval_min_minutes=task.reminder_interval_min_minutes,
-            interval_max_minutes=task.reminder_interval_max_minutes,
-            start_hour=task.reminder_start_hour,
-            end_hour=task.reminder_end_hour
         )
         task.next_reminder_at = next_rem_at
 
@@ -100,13 +97,9 @@ class TaskService:
             )
             await self._notification_service.send_group_message(group.telegram_chat_id, group_text)
 
-        task.next_reminder_at = calculate_next_reminder_at(
+        task.next_reminder_at = calculate_next_fixed_reminder_at(
             now_utc=now_utc,
             timezone_str=group.timezone,
-            interval_min_minutes=task.reminder_interval_min_minutes,
-            interval_max_minutes=task.reminder_interval_max_minutes,
-            start_hour=task.reminder_start_hour,
-            end_hour=task.reminder_end_hour,
         )
 
     async def _auto_skip_vacationing_members(self, task_id: int) -> None:
@@ -183,7 +176,7 @@ class TaskService:
             next_rem_at = reminder_window_start_utc(
                 local_date=start_date_local,
                 timezone_str=group_timezone,
-                start_hour=reminder_start_hour,
+                start_hour=FIXED_REMINDER_HOURS[0],
             )
 
         task = await self._task_repo.create(
